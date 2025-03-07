@@ -3,6 +3,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from collections import defaultdict
+import os
 from pathlib import Path
 from typing import Any, NamedTuple
 from pydantic_settings.sources import DEFAULT_PATH, PathType
@@ -21,22 +22,6 @@ import rich
 # ------------------------------------------------------------------------------
 
 
-def profile(env_vars: list[str] | str | None = None):
-    """
-    Mark a property as the profile selector.
-    Args:
-        env_vars: Environment variable name(s) to check for profile value
-    """
-
-    return Field(
-        default=None,
-        validation_alias=(
-            AliasChoices(*env_vars) if isinstance(env_vars, list) else env_vars
-        ),
-        json_schema_extra={"is_profile_selector": True},
-    )
-
-
 def overlay_profile(fn):
     """
     Decorator for `PydanticBaseSettingsSource` descendant's `__call__` method
@@ -50,20 +35,7 @@ def overlay_profile(fn):
         cur_state = deep_merge(source_state, self.current_state)
 
         # Find the profile selector field
-        profile_field = next(
-            (
-                name
-                for name, field in self.settings_cls.model_fields.items()
-                if (
-                    isinstance(field.json_schema_extra, dict)
-                    and field.json_schema_extra.get("is_profile_selector")
-                )
-            ),
-            None,
-        )
-
-        if not profile_field:
-            return source_state  # No profile support configured
+        profile_field = "active_profile"
 
         active_profile_name = cur_state.get(profile_field)
 
@@ -119,9 +91,19 @@ class AncestorTomlConfigSettingsSource(TomlConfigSettingsSource):
         self._case_sensitive = case_sensitive
         super().__init__(settings_cls, toml_file)
 
-    def _read_file(self, file_path: Path):
-        found = find_upwards(file_path, self._case_sensitive)
-        return super()._read_file(found or file_path)
+    def _read_files(self, files: PathType | None):
+        if files is None:
+            return {}
+        if isinstance(files, (str, os.PathLike)):
+            files = [files]
+        vars: dict[str, Any] = {}
+        for file in files:
+            file_path = Path(file).expanduser()
+            if file_path.is_file():
+                vars.update(self._read_file(file_path))
+            elif file_path := find_upwards(file_path, self._case_sensitive):
+                vars.update(self._read_file(file_path))
+        return vars
 
     @overlay_profile
     def __call__(self):
@@ -253,7 +235,7 @@ SOURCE_LABELS = {
     "InitSettingsSource": "passed kwarg",
     "EnvSettingsSource": "environment variable",
     "ProfileMixin": "active profile",
-    "AncestorTomlConfigSettingsSource": "raiconfig.toml",
+    "AncestorTomlConfigSettingsSource": "config.toml",
     "DefaultSettingsSource": "default",
 }
 
@@ -324,8 +306,16 @@ class BaseConfig(BaseSettings):
     Shared Config + Base class for specialized configs
     """
 
+    model_config = SettingsConfigDict(
+        toml_file="config.toml",
+        extra="ignore",
+        nested_model_default_partial_update=True,
+    )
+
     _config_title: str | None = None
-    config_provenance: dict[str, list[tuple[str, Any]]] = Field(default_factory=dict)
+    config_provenance: dict[str, list[tuple[str, Any]]] = Field(
+        default_factory=dict, exclude=True, repr=False
+    )
     profiles: dict[str, dict[str, Any]] = Field(default_factory=dict, alias="profile")
     active_profile: str | None = Field(default=None)
 
