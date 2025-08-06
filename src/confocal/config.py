@@ -310,6 +310,7 @@ class BaseConfig(BaseSettings):
         toml_file="config.toml",
         extra="ignore",
         nested_model_default_partial_update=True,
+        env_nested_delimiter="__",
     )
 
     _config_title: str | None = None
