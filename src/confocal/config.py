@@ -26,23 +26,6 @@ import yaml
 
 
 class BaseProfile(BaseModel):
-    """
-    Base class for configuration profiles.
-
-    Extend this class to define profile-specific settings. The 'extra="allow"'
-    configuration allows profiles to override any config values from the parent
-    config class.
-
-    Example:
-        class MyProfile(BaseProfile):
-            database_url: str
-            debug: bool = False
-
-        class MyConfig(BaseConfig):
-            profiles: dict[str, MyProfile]
-            database_url: str = "default"
-            debug: bool = False
-    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -68,11 +51,9 @@ def overlay_profile(fn):
 
         active_profile_name = cur_state.get(profile_field)
 
-        # Support both "profile" (alias) and "profiles" (field name)
         profiles = cur_state.get("profiles") or cur_state.get("profile", {})
         active_profile = profiles.get(active_profile_name, {})
 
-        # Convert Profile model to dict if needed (for BaseModel instances with extra="allow")
         if isinstance(active_profile, BaseModel):
             active_profile = active_profile.model_dump()
 
@@ -448,28 +429,15 @@ class BaseConfig(BaseSettings, Generic[ProfileT]):
     active_profile: str | None = Field(default=None)
 
     def __init__(self, **data):
-        """
-        Initialize config with smart file loading.
-
-        If profiles (or other data) are passed directly, skip file loading.
-        Otherwise, load from configured file sources.
-        """
         if self._should_skip_file_loading(data):
             self._init_without_file_loading(**data)
         else:
             super().__init__(**data)
 
     def _should_skip_file_loading(self, data: dict) -> bool:
-        """
-        Determine if file loading should be skipped.
-
-        Override in subclass for custom logic. By default, skips file loading
-        if 'profiles' are explicitly provided in the data.
-        """
         return 'profiles' in data and data.get('profiles')
 
     def _init_without_file_loading(self, **data):
-        """Initialize without loading from config files."""
         # Temporarily disable all file sources
         original_settings = {}
 

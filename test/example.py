@@ -64,84 +64,39 @@ class SnowflakeConfig(Config):
 # ------------------------------------------------------------------------------
 
 class MyProfile(BaseProfile):
-    """Custom profile extending the base BaseProfile class"""
     database_url: str
 
 
-class YamlConfig(BaseConfig):
-    """
-    Config that supports both file loading and direct config passing.
-
-    - YamlConfig() - loads from config.yaml file
-    - YamlConfig(profiles={...}) - skips file loading, uses passed data
-    """
+class YamlConfig(BaseConfig[MyProfile]):
     model_config = SettingsConfigDict(
         yaml_file="config.yaml",
     )
 
-    profiles: dict[str, MyProfile]
     database_url: str
     debug: bool = False
+
+
+# ------------------------------------------------------------------------------
+# Example 3: Direct Config Passing (skips file loading)
+# ------------------------------------------------------------------------------
+
+dev_profile = MyProfile(database_url='postgresql://localhost:5432')
+prod_profile = MyProfile(database_url='postgresql://prod:5432')
+
+direct_config = YamlConfig(
+    database_url='my_direct_db',
+    debug=True,
+    profiles={'dev': dev_profile, 'prod': prod_profile}
+)
 
 
 # ------------------------------------------------------------------------------
 # Run Examples
 # ------------------------------------------------------------------------------
 
-if __name__ == "__main__":
-    print("\n" + "=" * 70)
-    print("Example 1: TOML Config")
-    print("=" * 70)
-    cfg = Config(foo="bye", compiler={"optimization_level": 5}, alpha="h")
-    cfg.explain(True)
-    print()
-    cfg.explain()
+cfg = Config(foo="bye", compiler={"optimization_level": 5}, alpha="h")
+cfg.explain(True)
 
-    print("\n" + "=" * 70)
-    print("Example 2: YAML Config - Load from File")
-    print("=" * 70)
-    print("# Load from config.yaml:")
-    print("config = YamlConfig()")
-    print("# or")
-    print("config = YamlConfig.load()")
-    print()
+cfg.explain()
 
-    print("=" * 70)
-    print("Example 3: YAML Config - Direct Config Passing (Skip File Loading)")
-    print("=" * 70)
-    print("# Same config class, but pass profiles directly:")
-    print()
-
-    # Create profiles in code
-    dev_profile = MyProfile(database_url='postgresql://localhost:5432')
-    prod_profile = MyProfile(database_url='postgresql://prod:5432')
-
-    # Pass directly to the SAME config class, skipping file loading
-    direct_config = YamlConfig(
-        database_url='my_direct_db',
-        debug=True,
-        profiles={'dev': dev_profile, 'prod': prod_profile}
-    )
-    direct_config.explain()
-
-    print("config = YamlConfig(")
-    print("    database_url='my_direct_db',")
-    print("    debug=True,")
-    print("    profiles={'dev': dev_profile, 'prod': prod_profile}")
-    print(")")
-    print()
-    print("✅ File loading was skipped!")
-    print(f"   database_url: {direct_config.database_url}")
-    print(f"   debug: {direct_config.debug}")
-    print(f"   profiles: {list(direct_config.profiles.keys())}")
-    print()
-
-    print("=" * 70)
-    print("Key Features:")
-    print("=" * 70)
-    print("✓ TOML config loading")
-    print("✓ YAML config loading with profiles")
-    print("✓ Custom Profile types with extra fields")
-    print("✓ Direct config passing (skips file loading)")
-    print("✓ Provenance tracking with explain()")
-    print()
+direct_config.explain()
