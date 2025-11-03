@@ -25,7 +25,7 @@ import yaml
 # ------------------------------------------------------------------------------
 
 
-class Profile(BaseModel):
+class BaseProfile(BaseModel):
     """
     Base class for configuration profiles.
 
@@ -34,7 +34,7 @@ class Profile(BaseModel):
     config class.
 
     Example:
-        class MyProfile(Profile):
+        class MyProfile(BaseProfile):
             database_url: str
             debug: bool = False
 
@@ -440,7 +440,7 @@ class BaseConfig(BaseSettings):
     config_provenance: dict[str, list[tuple[str, Any]]] = Field(
         default_factory=dict, exclude=True, repr=False
     )
-    profiles: dict[str, Profile] = Field(default_factory=dict, alias="profile")
+    profiles: dict[str, BaseProfile] = Field(default_factory=dict, alias="profile")
     active_profile: str | None = Field(default=None)
 
     def __init__(self, **data):

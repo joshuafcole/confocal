@@ -4,7 +4,7 @@
 from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic_settings import SettingsConfigDict
-from confocal import BaseConfig, Profile
+from confocal import BaseConfig, BaseProfile
 
 
 class CompilerConfig(BaseModel):
@@ -63,8 +63,8 @@ class SnowflakeConfig(Config):
 # Example 2: YAML Config with Profiles
 # ------------------------------------------------------------------------------
 
-class MyProfile(Profile):
-    """Custom profile extending the base Profile class"""
+class MyProfile(BaseProfile):
+    """Custom profile extending the base BaseProfile class"""
     database_url: str
 
 
@@ -122,6 +122,7 @@ if __name__ == "__main__":
         debug=True,
         profiles={'dev': dev_profile, 'prod': prod_profile}
     )
+    direct_config.explain()
 
     print("config = YamlConfig(")
     print("    database_url='my_direct_db',")
