@@ -314,8 +314,6 @@ def inject_provenance(self: DefaultSettingsSource):
 DefaultSettingsSource.__call__ = inject_provenance
 
 
-
-
 # ------------------------------------------------------------------------------
 # Provenance Explanation
 # ------------------------------------------------------------------------------
