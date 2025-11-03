@@ -6,7 +6,7 @@ from collections import defaultdict
 import os
 import re
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Generic, NamedTuple, TypeVar
 from pydantic_settings.sources import DEFAULT_PATH, PathType
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.fields import FieldInfo
@@ -422,10 +422,14 @@ def show_provenance(
 # Base Config
 # ------------------------------------------------------------------------------
 
+ProfileT = TypeVar('ProfileT', bound=BaseProfile)
 
-class BaseConfig(BaseSettings):
+
+class BaseConfig(BaseSettings, Generic[ProfileT]):
     """
     Shared Config + Base class for specialized configs
+
+    Generic over ProfileT to allow type-safe profile subclasses.
     """
 
     model_config = SettingsConfigDict(
@@ -440,7 +444,7 @@ class BaseConfig(BaseSettings):
     config_provenance: dict[str, list[tuple[str, Any]]] = Field(
         default_factory=dict, exclude=True, repr=False
     )
-    profiles: dict[str, BaseProfile] = Field(default_factory=dict, alias="profile")
+    profiles: dict[str, ProfileT] = Field(default_factory=dict, alias="profile")
     active_profile: str | None = Field(default=None)
 
     def __init__(self, **data):
