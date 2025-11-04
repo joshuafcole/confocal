@@ -159,6 +159,29 @@ def flatten_dict(d: dict, prefix: str = "") -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------------------
+# Provenance Tracking
+# ------------------------------------------------------------------------------
+
+__og_default_call = DefaultSettingsSource.__call__
+
+
+def inject_provenance(self: DefaultSettingsSource):
+    """
+    Captures which sources provided which values to help explain the final state of the config.
+    """
+    final = __og_default_call(self)
+
+    if "config_provenance" in self.settings_cls.model_fields:
+        final_sources = {**self.settings_sources_data, "DefaultSettingsSource": final}
+        final["config_provenance"] = pivot_config_sources(final_sources)
+
+    return final
+
+
+DefaultSettingsSource.__call__ = inject_provenance
+
+
+# ------------------------------------------------------------------------------
 # Config Source Mixins
 # ------------------------------------------------------------------------------
 
@@ -286,29 +309,6 @@ class AncestorYamlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin,
 
     def __call__(self) -> dict[str, Any]:
         return self._read_files(self._yaml_file)
-
-
-# ------------------------------------------------------------------------------
-# Provenance Tracking
-# ------------------------------------------------------------------------------
-
-__og_default_call = DefaultSettingsSource.__call__
-
-
-def inject_provenance(self: DefaultSettingsSource):
-    """
-    Captures which sources provided which values to help explain the final state of the config.
-    """
-    final = __og_default_call(self)
-
-    if "config_provenance" in self.settings_cls.model_fields:
-        final_sources = {**self.settings_sources_data, "DefaultSettingsSource": final}
-        final["config_provenance"] = pivot_config_sources(final_sources)
-
-    return final
-
-
-DefaultSettingsSource.__call__ = inject_provenance
 
 
 # ------------------------------------------------------------------------------
