@@ -4,7 +4,7 @@
 from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic_settings import SettingsConfigDict
-from confocal import BaseConfig, BaseProfile
+from confocal import BaseConfig
 
 
 class CompilerConfig(BaseModel):
@@ -60,14 +60,10 @@ class SnowflakeConfig(Config):
 
 
 # ------------------------------------------------------------------------------
-# Example 2: YAML Config with Profiles
+# Example 2: YAML Config
 # ------------------------------------------------------------------------------
 
-class MyProfile(BaseProfile):
-    database_url: str
-
-
-class YamlConfig(BaseConfig[MyProfile]):
+class YamlConfig(BaseConfig):
     model_config = SettingsConfigDict(
         yaml_file="config.yaml",
     )
@@ -77,26 +73,8 @@ class YamlConfig(BaseConfig[MyProfile]):
 
 
 # ------------------------------------------------------------------------------
-# Example 3: Direct Config Passing (skips file loading)
-# ------------------------------------------------------------------------------
-
-dev_profile = MyProfile(database_url='postgresql://localhost:5432')
-prod_profile = MyProfile(database_url='postgresql://prod:5432')
-
-direct_config = YamlConfig(
-    database_url='my_direct_db',
-    debug=True,
-    profiles={'dev': dev_profile, 'prod': prod_profile}
-)
-
-
-# ------------------------------------------------------------------------------
 # Run Examples
 # ------------------------------------------------------------------------------
 
 cfg = Config(foo="bye", compiler={"optimization_level": 5}, alpha="h")
-cfg.explain(True)
-
 cfg.explain()
-
-direct_config.explain()

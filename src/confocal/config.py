@@ -6,7 +6,7 @@ from collections import defaultdict
 import os
 import re
 from pathlib import Path
-from typing import Any, Generic, NamedTuple, TypeVar
+from typing import Any, NamedTuple
 from pydantic_settings.sources import DEFAULT_PATH, PathType
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.fields import FieldInfo
@@ -19,15 +19,6 @@ from pydantic_settings.sources import (
 from rich.tree import Tree
 import rich
 import yaml
-
-# ------------------------------------------------------------------------------
-# Profile Base Class
-# ------------------------------------------------------------------------------
-
-
-class BaseProfile(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
 
 # ------------------------------------------------------------------------------
 # Utility Functions
@@ -168,82 +159,27 @@ def flatten_dict(d: dict, prefix: str = "") -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------------------
-# Ancestor TOML Config Settings Source
+# Config Source Mixins
 # ------------------------------------------------------------------------------
 
 
-class AncestorTomlConfigSettingsSource(TomlConfigSettingsSource):
-    """
-    Read config from the nearest matching toml file in this or a containing folder.
-    """
+class AncestorConfigMixin:
+    """Mixin for finding config files in ancestor directories."""
 
-    def __init__(
-        self,
-        settings_cls: type[BaseSettings],
-        toml_file: PathType | None = DEFAULT_PATH,
-        *,
-        case_sensitive=False,
-    ):
+    def __init__(self, *args, case_sensitive: bool = False, **kwargs):
         self._case_sensitive = case_sensitive
-        super().__init__(settings_cls, toml_file)
+        super().__init__(*args, **kwargs)
 
-    def _read_files(self, files: PathType | None):
+    def _read_files(self, files: PathType | None) -> dict[str, Any]:
+        """Read config files, searching upwards if not found directly."""
         if files is None:
             return {}
         if isinstance(files, (str, os.PathLike)):
             files = [files]
-        vars: dict[str, Any] = {}
-        for file in files:
-            file_path = Path(file).expanduser()
-            if file_path.is_file():
-                vars.update(self._read_file(file_path))
-            elif file_path := find_upwards(file_path, self._case_sensitive):
-                vars.update(self._read_file(file_path))
-        return vars
-
-    @overlay_profile
-    def __call__(self):
-        return super().__call__()
-
-
-# ------------------------------------------------------------------------------
-# Ancestor YAML Config Settings Source
-# ------------------------------------------------------------------------------
-
-
-class AncestorYamlConfigSettingsSource(PydanticBaseSettingsSource):
-    """
-    Read config from the nearest matching YAML file in this or a containing folder.
-    """
-
-    def __init__(
-        self,
-        settings_cls: type[BaseSettings],
-        yaml_file: str | Path | None = None,
-        *,
-        case_sensitive: bool = False,
-        enable_env_vars: bool = True,
-    ):
-        super().__init__(settings_cls)
-        self._yaml_file = yaml_file
-        self._case_sensitive = case_sensitive
-        self._enable_env_vars = enable_env_vars
-
-    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
-        # Not used since we override __call__ directly
-        return None, "", False
-
-    def _read_files(self, files: str | Path | list[str | Path] | None) -> dict[str, Any]:
-        if files is None:
-            return {}
-
-        if isinstance(files, (str, Path)):
-            files = [files]
 
         vars: dict[str, Any] = {}
         for file in files:
             file_path = Path(file).expanduser()
-
             if file_path.is_file():
                 vars.update(self._read_file(file_path))
             else:
@@ -252,14 +188,13 @@ class AncestorYamlConfigSettingsSource(PydanticBaseSettingsSource):
                     vars.update(self._read_file(found_path))
         return vars
 
-    def _read_file(self, file_path: Path) -> dict[str, Any]:
-        with open(file_path) as f:
-            content = f.read()
 
-        if self._enable_env_vars:
-            content = self._render_env_vars(content)
+class EnvVarTemplateMixin:
+    """Mixin for environment variable templating in config files."""
 
-        return yaml.safe_load(content) or {}
+    def __init__(self, *args, enable_env_vars: bool = True, **kwargs):
+        self._enable_env_vars = enable_env_vars
+        super().__init__(*args, **kwargs)
 
     def _render_env_vars(self, content: str) -> str:
         """
@@ -286,7 +221,69 @@ class AncestorYamlConfigSettingsSource(PydanticBaseSettingsSource):
         pattern = r"\{\{\s*env_var\(\s*['\"]([^'\"]+)['\"]\s*(?:,\s*['\"]([^'\"]+)['\"])?\s*\)\s*\}\}"
         return re.sub(pattern, replace_env_var, content)
 
-    @overlay_profile
+
+# ------------------------------------------------------------------------------
+# Ancestor TOML Config Settings Source
+# ------------------------------------------------------------------------------
+
+
+class AncestorTomlConfigSettingsSource(AncestorConfigMixin, TomlConfigSettingsSource):
+    """
+    Read config from the nearest matching toml file in this or a containing folder.
+    """
+
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        toml_file: PathType | None = DEFAULT_PATH,
+        *,
+        case_sensitive=False,
+    ):
+        # Call mixin init which will call super().__init__
+        super().__init__(case_sensitive=case_sensitive, settings_cls=settings_cls, toml_file=toml_file)
+
+
+# ------------------------------------------------------------------------------
+# Ancestor YAML Config Settings Source
+# ------------------------------------------------------------------------------
+
+
+class AncestorYamlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin, PydanticBaseSettingsSource):
+    """
+    Read config from the nearest matching YAML file in this or a containing folder.
+    Supports environment variable templating with {{ env_var('VAR') }} syntax.
+    """
+
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        yaml_file: str | Path | None = None,
+        *,
+        case_sensitive: bool = False,
+        enable_env_vars: bool = True,
+    ):
+        self._yaml_file = yaml_file
+        # Call mixin inits which will call PydanticBaseSettingsSource.__init__
+        super().__init__(
+            case_sensitive=case_sensitive,
+            enable_env_vars=enable_env_vars,
+            settings_cls=settings_cls
+        )
+
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
+        # Not used since we override __call__ directly
+        return None, "", False
+
+    def _read_file(self, file_path: Path) -> dict[str, Any]:
+        """Read and parse a YAML file, applying env var templating if enabled."""
+        with open(file_path) as f:
+            content = f.read()
+
+        if self._enable_env_vars:
+            content = self._render_env_vars(content)
+
+        return yaml.safe_load(content) or {}
+
     def __call__(self) -> dict[str, Any]:
         return self._read_files(self._yaml_file)
 
@@ -401,14 +398,10 @@ def show_provenance(
 # Base Config
 # ------------------------------------------------------------------------------
 
-ProfileT = TypeVar('ProfileT', bound=BaseProfile)
 
-
-class BaseConfig(BaseSettings, Generic[ProfileT]):
+class BaseConfig(BaseSettings):
     """
     Shared Config + Base class for specialized configs
-
-    Generic over ProfileT to allow type-safe profile subclasses.
     """
 
     model_config = SettingsConfigDict(
@@ -423,47 +416,9 @@ class BaseConfig(BaseSettings, Generic[ProfileT]):
     config_provenance: dict[str, list[tuple[str, Any]]] = Field(
         default_factory=dict, exclude=True, repr=False
     )
-    profiles: dict[str, ProfileT] = Field(default_factory=dict, alias="profile")
-    active_profile: str | None = Field(default=None)
-
-    def __init__(self, **data):
-        if self._should_skip_file_loading(data):
-            self._init_without_file_loading(**data)
-        else:
-            super().__init__(**data)
-
-    def _should_skip_file_loading(self, data: dict) -> bool:
-        return 'profiles' in data and data.get('profiles')
-
-    def _init_without_file_loading(self, **data):
-        # Temporarily disable all file sources
-        original_settings = {}
-
-        for key in ['toml_file', 'yaml_file']:
-            if key in self.model_config:
-                original_settings[key] = self.model_config[key]
-                self.model_config[key] = None
-
-        try:
-            super().__init__(**data)
-        finally:
-            # Restore original settings
-            for key, value in original_settings.items():
-                self.model_config[key] = value
 
     def explain(self, verbose=False):
         tree = Tree(self._config_title or self.__class__.__name__)
-        profiles = getattr(self, "profiles", None)
-        active = getattr(self, "active_profile", None)
-        if profiles:
-            profiles_node = tree.add("Available Profiles")
-            for profile in profiles.keys():
-                profiles_node.add(
-                    f"{profile} (active)"
-                    if active == profile
-                    else f"[dim]{profile}[/dim]"
-                )
-
         show_provenance(self, self.config_provenance, verbose, None, tree)
         rich.print(tree)
 
