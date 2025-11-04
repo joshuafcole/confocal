@@ -413,9 +413,22 @@ class BaseConfig(BaseSettings):
     config_provenance: dict[str, list[tuple[str, Any]]] = Field(
         default_factory=dict, exclude=True, repr=False
     )
+    profiles: dict[str, dict[str, Any]] = Field(default_factory=dict, alias="profile")
+    active_profile: str | None = Field(default=None)
 
     def explain(self, verbose=False):
         tree = Tree(self._config_title or self.__class__.__name__)
+        profiles = getattr(self, "profiles", None)
+        active = getattr(self, "active_profile", None)
+        if profiles:
+            profiles_node = tree.add("Available Profiles")
+            for profile in profiles.keys():
+                profiles_node.add(
+                    f"{profile} (active)"
+                    if active == profile
+                    else f"[dim]{profile}[/dim]"
+                )
+
         show_provenance(self, self.config_provenance, verbose, None, tree)
         rich.print(tree)
 
