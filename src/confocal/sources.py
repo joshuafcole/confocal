@@ -50,7 +50,7 @@ class AncestorConfigMixin:
 
 
 class EnvVarTemplateMixin:
-    """Mixin for environment variable templating in config files."""
+    """Mixin for environment variable templating in yaml config files."""
 
     def __init__(self, *args, enable_env_vars: bool = True, **kwargs):
         self._enable_env_vars = enable_env_vars
@@ -59,9 +59,7 @@ class EnvVarTemplateMixin:
     def _render_env_vars(self, content: str) -> str:
         """
         Process {{ env_var('VAR') }} and {{ env_var('VAR', 'default') }} patterns.
-
         Supports both single and double quotes.
-        Raises ValueError if env var not found and no default provided.
         """
         def replace_env_var(match: re.Match) -> str:
             var_name = match.group(1)
@@ -123,7 +121,6 @@ class AncestorYamlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin,
         enable_env_vars: bool = True,
     ):
         self._yaml_file = yaml_file
-        # Call mixin inits which will call PydanticBaseSettingsSource.__init__
         super().__init__(
             case_sensitive=case_sensitive,
             enable_env_vars=enable_env_vars,

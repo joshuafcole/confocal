@@ -3,8 +3,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from collections import defaultdict
-import os
-from pathlib import Path
 from typing import Any, NamedTuple
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -15,7 +13,6 @@ from pydantic_settings.sources import (
 from rich.tree import Tree
 import rich
 
-from .utils import find_upwards
 from .sources import AncestorTomlConfigSettingsSource, AncestorYamlConfigSettingsSource
 
 # ------------------------------------------------------------------------------
