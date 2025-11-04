@@ -21,8 +21,44 @@ import rich
 import yaml
 
 # ------------------------------------------------------------------------------
-# Utility Functions
+# Profile Config Settings Source
 # ------------------------------------------------------------------------------
+
+
+def overlay_profile(fn):
+    """
+    Decorator for `PydanticBaseSettingsSource` descendant's `__call__` method
+    which adds a virtual "profile" source with higher precedence, but keeping
+    access to this sources data. Merges all keys under profile.<active_profile>
+    into the base config.
+    """
+
+    def wrapper(self: PydanticBaseSettingsSource):
+        source_state = fn(self)
+        cur_state = deep_merge(source_state, self.current_state)
+
+        # Find the profile selector field
+        profile_field = "active_profile"
+
+        active_profile_name = cur_state.get(profile_field)
+
+        profiles = cur_state.get("profile", {})
+        active_profile = profiles.get(active_profile_name, {})
+
+        if not active_profile or not isinstance(active_profile, dict):
+            return source_state
+
+        merged = deep_merge(source_state, active_profile)
+        if "config_provenance" in self.settings_cls.model_fields:
+            combined_sources = {
+                "ProfileMixin": active_profile,
+                self.__class__.__name__: source_state,
+            }
+            merged["_config_provenance"] = pivot_config_sources(combined_sources)
+
+        return merged
+
+    return wrapper
 
 
 def deep_merge(dict1: dict, dict2: dict) -> dict:
@@ -117,29 +153,6 @@ def flatten_dict(d: dict, prefix: str = "") -> dict[str, Any]:
         else:
             result[new_key] = value
     return result
-
-
-# ------------------------------------------------------------------------------
-# Provenance Tracking
-# ------------------------------------------------------------------------------
-
-__og_default_call = DefaultSettingsSource.__call__
-
-
-def inject_provenance(self: DefaultSettingsSource):
-    """
-    Captures which sources provided which values to help explain the final state of the config.
-    """
-    final = __og_default_call(self)
-
-    if "config_provenance" in self.settings_cls.model_fields:
-        final_sources = {**self.settings_sources_data, "DefaultSettingsSource": final}
-        final["config_provenance"] = pivot_config_sources(final_sources)
-
-    return final
-
-
-DefaultSettingsSource.__call__ = inject_provenance
 
 
 # ------------------------------------------------------------------------------
@@ -270,6 +283,29 @@ class AncestorYamlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin,
 
     def __call__(self) -> dict[str, Any]:
         return self._read_files(self._yaml_file)
+
+
+# ------------------------------------------------------------------------------
+# Provenance Tracking
+# ------------------------------------------------------------------------------
+
+__og_default_call = DefaultSettingsSource.__call__
+
+
+def inject_provenance(self: DefaultSettingsSource):
+    """
+    Captures which sources provided which values to help explain the final state of the config.
+    """
+    final = __og_default_call(self)
+
+    if "config_provenance" in self.settings_cls.model_fields:
+        final_sources = {**self.settings_sources_data, "DefaultSettingsSource": final}
+        final["config_provenance"] = pivot_config_sources(final_sources)
+
+    return final
+
+
+DefaultSettingsSource.__call__ = inject_provenance
 
 
 # ------------------------------------------------------------------------------
