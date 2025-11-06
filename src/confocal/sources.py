@@ -15,7 +15,7 @@ from pydantic_settings.sources import (
 )
 import yaml
 
-from .utils import find_upwards
+from .utils import find_upwards, overlay_profile
 
 
 # ------------------------------------------------------------------------------
@@ -122,6 +122,10 @@ class AncestorTomlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin,
     def _parse_content(self, content: str, file_path: Path) -> dict[str, Any]:
         return tomllib.loads(content)
 
+    @overlay_profile
+    def __call__(self):
+        return super().__call__()
+
 
 # ------------------------------------------------------------------------------
 # Ancestor YAML Config Settings Source
@@ -149,3 +153,7 @@ class AncestorYamlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin,
 
     def _parse_content(self, content: str, file_path: Path) -> dict[str, Any]:
         return yaml.safe_load(content) or {}
+
+    @overlay_profile
+    def __call__(self):
+        return super().__call__()

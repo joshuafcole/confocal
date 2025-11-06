@@ -20,55 +20,6 @@ from .sources import AncestorTomlConfigSettingsSource, AncestorYamlConfigSetting
 # ------------------------------------------------------------------------------
 
 
-def overlay_profile(fn):
-    """
-    Decorator for `PydanticBaseSettingsSource` descendant's `__call__` method
-    which adds a virtual "profile" source with higher precedence, but keeping
-    access to this sources data. Merges all keys under profile.<active_profile>
-    into the base config.
-    """
-
-    def wrapper(self: PydanticBaseSettingsSource):
-        source_state = fn(self)
-        cur_state = deep_merge(source_state, self.current_state)
-
-        # Find the profile selector field
-        profile_field = "active_profile"
-
-        active_profile_name = cur_state.get(profile_field)
-
-        profiles = cur_state.get("profile", {})
-        active_profile = profiles.get(active_profile_name, {})
-
-        if not active_profile or not isinstance(active_profile, dict):
-            return source_state
-
-        merged = deep_merge(source_state, active_profile)
-        if "config_provenance" in self.settings_cls.model_fields:
-            combined_sources = {
-                "ProfileMixin": active_profile,
-                self.__class__.__name__: source_state,
-            }
-            merged["_config_provenance"] = pivot_config_sources(combined_sources)
-
-        return merged
-
-    return wrapper
-
-
-def deep_merge(dict1: dict, dict2: dict) -> dict:
-    """
-    Merge two dicts
-    """
-    result = dict1.copy()
-    for key, value in dict2.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = deep_merge(result[key], value)
-        else:
-            result[key] = value
-    return result
-
-
 def pivot_config_sources(
     source_values: dict[str, dict[str, Any]]
 ) -> dict[str, list[tuple[str, Any]]]:
@@ -285,7 +236,7 @@ class BaseConfig(BaseSettings):
         if yaml_file:
             sources.append(AncestorYamlConfigSettingsSource(settings_cls, yaml_file))
         elif toml_file:
-            sources.append(AncestorTomlConfigSettingsSource(settings_cls))
+            sources.append(AncestorTomlConfigSettingsSource(settings_cls, toml_file))
 
         sources.append(file_secret_settings)
 
