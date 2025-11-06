@@ -3,15 +3,15 @@
 from __future__ import annotations
 import os
 import re
+import tomllib
 from pathlib import Path
 from typing import Any
 
 from pydantic_settings.sources import DEFAULT_PATH, PathType
-from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings
 from pydantic_settings.sources import (
-    PydanticBaseSettingsSource,
     TomlConfigSettingsSource,
+    YamlConfigSettingsSource,
 )
 import yaml
 
@@ -50,11 +50,26 @@ class AncestorConfigMixin:
 
 
 class EnvVarTemplateMixin:
-    """Mixin for environment variable templating in yaml config files."""
+    """Mixin for environment variable templating in yaml and toml config files."""
 
     def __init__(self, *args, enable_env_vars: bool = True, **kwargs):
         self._enable_env_vars = enable_env_vars
         super().__init__(*args, **kwargs)
+
+    def _read_file(self, file_path: Path) -> dict[str, Any]:
+        with open(file_path, encoding=getattr(self, 'yaml_file_encoding', None) or getattr(self, 'toml_file_encoding', None)) as f:
+            content = f.read()
+
+        if self._enable_env_vars:
+            content = self._render_env_vars(content)
+
+        return self._parse_content(content, file_path)
+
+    def _parse_content(self, content: str, file_path: Path) -> dict[str, Any]:
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement _parse_content() "
+            "to parse file content into a dict"
+        )
 
     def _render_env_vars(self, content: str) -> str:
         """
@@ -85,9 +100,10 @@ class EnvVarTemplateMixin:
 # ------------------------------------------------------------------------------
 
 
-class AncestorTomlConfigSettingsSource(AncestorConfigMixin, TomlConfigSettingsSource):
+class AncestorTomlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin, TomlConfigSettingsSource):
     """
     Read config from the nearest matching toml file in this or a containing folder.
+    Supports environment variable templating with {{ env_var('VAR') }} syntax (via EnvVarTemplateMixin).
     """
 
     def __init__(
@@ -95,10 +111,16 @@ class AncestorTomlConfigSettingsSource(AncestorConfigMixin, TomlConfigSettingsSo
         settings_cls: type[BaseSettings],
         toml_file: PathType | None = DEFAULT_PATH,
         *,
-        case_sensitive=False,
+        case_sensitive: bool = False,
+        enable_env_vars: bool = True,
     ):
-        # Call mixin init which will call super().__init__
-        super().__init__(case_sensitive=case_sensitive, settings_cls=settings_cls, toml_file=toml_file)
+        self._case_sensitive = case_sensitive
+        self._enable_env_vars = enable_env_vars
+
+        super().__init__(settings_cls=settings_cls, toml_file=toml_file)
+
+    def _parse_content(self, content: str, file_path: Path) -> dict[str, Any]:
+        return tomllib.loads(content)
 
 
 # ------------------------------------------------------------------------------
@@ -106,40 +128,24 @@ class AncestorTomlConfigSettingsSource(AncestorConfigMixin, TomlConfigSettingsSo
 # ------------------------------------------------------------------------------
 
 
-class AncestorYamlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin, PydanticBaseSettingsSource):
+class AncestorYamlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin, YamlConfigSettingsSource):
     """
     Read config from the nearest matching YAML file in this or a containing folder.
-    Supports environment variable templating with {{ env_var('VAR') }} syntax.
+    Supports environment variable templating with {{ env_var('VAR') }} syntax (via EnvVarTemplateMixin).
     """
 
     def __init__(
         self,
         settings_cls: type[BaseSettings],
-        yaml_file: str | Path | None = None,
+        yaml_file: PathType | None = None,
         *,
         case_sensitive: bool = False,
         enable_env_vars: bool = True,
     ):
-        self._yaml_file = yaml_file
-        super().__init__(
-            case_sensitive=case_sensitive,
-            enable_env_vars=enable_env_vars,
-            settings_cls=settings_cls
-        )
+        self._case_sensitive = case_sensitive
+        self._enable_env_vars = enable_env_vars
 
-    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
-        # Not used since we override __call__ directly
-        return None, "", False
+        super().__init__(settings_cls=settings_cls, yaml_file=yaml_file)
 
-    def _read_file(self, file_path: Path) -> dict[str, Any]:
-        """Read and parse a YAML file, applying env var templating if enabled."""
-        with open(file_path) as f:
-            content = f.read()
-
-        if self._enable_env_vars:
-            content = self._render_env_vars(content)
-
+    def _parse_content(self, content: str, file_path: Path) -> dict[str, Any]:
         return yaml.safe_load(content) or {}
-
-    def __call__(self) -> dict[str, Any]:
-        return self._read_files(self._yaml_file)
