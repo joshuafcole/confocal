@@ -57,7 +57,7 @@ jobs:
         pip install ruff mypy
     
     - name: Run ruff
-      run: ruff check confocal/ tests/
+      run: ruff check src/confocal/ tests/
     
     - name: Run mypy
-      run: mypy confocal/ --ignore-missing-imports
+      run: mypy src/confocal/ --ignore-missing-imports
