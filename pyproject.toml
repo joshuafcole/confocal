@@ -18,6 +18,8 @@ dependencies = [
 dev = [
     "build>=0.10.0",
     "twine>=4.0.0",
+    "mypy>=1.0.0",
+    "types-PyYAML>=6.0.0",
 ]
 test = [
     "pytest>=7.4.0",
