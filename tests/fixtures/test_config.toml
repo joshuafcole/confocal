@@ -1,0 +1,19 @@
+# Test TOML config with profiles and env var templating
+active_profile = "dev"
+
+# Global defaults
+database_url = "default_db"
+debug = false
+timeout = 30
+
+[profile.dev]
+database_url = "{{ env_var('TEST_DB_URL', 'postgresql://localhost:5432/dev') }}"
+api_key = "{{ env_var('TEST_API_KEY', 'dev_key_123') }}"
+debug = true
+max_connections = 10
+
+[profile.prod]
+database_url = "{{ env_var('PROD_DB_URL', 'postgresql://prod:5432/prod') }}"
+api_key = "{{ env_var('PROD_API_KEY', 'prod_key_456') }}"
+debug = false
+max_connections = 100
