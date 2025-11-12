@@ -3,178 +3,21 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from collections import defaultdict
-import os
-from pathlib import Path
 from typing import Any, NamedTuple
-from pydantic_settings.sources import DEFAULT_PATH, PathType
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import (
     PydanticBaseSettingsSource,
-    TomlConfigSettingsSource,
     DefaultSettingsSource,
 )
 from rich.tree import Tree
 import rich
 
+from .sources import AncestorTomlConfigSettingsSource, AncestorYamlConfigSettingsSource
+
 # ------------------------------------------------------------------------------
 # Profile Config Settings Source
 # ------------------------------------------------------------------------------
-
-
-def overlay_profile(fn):
-    """
-    Decorator for `PydanticBaseSettingsSource` descendant's `__call__` method
-    which adds a virtual "profile" source with higher precedence, but keeping
-    access to this sources data. Merges all keys under profile.<active_profile>
-    into the base config.
-    """
-
-    def wrapper(self: PydanticBaseSettingsSource):
-        source_state = fn(self)
-        cur_state = deep_merge(source_state, self.current_state)
-
-        # Find the profile selector field
-        profile_field = "active_profile"
-
-        active_profile_name = cur_state.get(profile_field)
-
-        profiles = cur_state.get("profile", {})
-        active_profile = profiles.get(active_profile_name, {})
-
-        if not active_profile or not isinstance(active_profile, dict):
-            return source_state
-
-        merged = deep_merge(source_state, active_profile)
-        if "config_provenance" in self.settings_cls.model_fields:
-            combined_sources = {
-                "ProfileMixin": active_profile,
-                self.__class__.__name__: source_state,
-            }
-            merged["_config_provenance"] = pivot_config_sources(combined_sources)
-
-        return merged
-
-    return wrapper
-
-
-def deep_merge(dict1: dict, dict2: dict) -> dict:
-    """
-    Merge two dicts
-    """
-    result = dict1.copy()
-    for key, value in dict2.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = deep_merge(result[key], value)
-        else:
-            result[key] = value
-    return result
-
-
-# ------------------------------------------------------------------------------
-# Ancestor TOML Config Settings Source
-# ------------------------------------------------------------------------------
-
-
-class AncestorTomlConfigSettingsSource(TomlConfigSettingsSource):
-    """
-    Read config from the nearest matching toml file in this or a containing folder.
-    """
-
-    def __init__(
-        self,
-        settings_cls: type[BaseSettings],
-        toml_file: PathType | None = DEFAULT_PATH,
-        *,
-        case_sensitive=False,
-    ):
-        self._case_sensitive = case_sensitive
-        super().__init__(settings_cls, toml_file)
-
-    def _read_files(self, files: PathType | None):
-        if files is None:
-            return {}
-        if isinstance(files, (str, os.PathLike)):
-            files = [files]
-        vars: dict[str, Any] = {}
-        for file in files:
-            file_path = Path(file).expanduser()
-            if file_path.is_file():
-                vars.update(self._read_file(file_path))
-            elif file_path := find_upwards(file_path, self._case_sensitive):
-                vars.update(self._read_file(file_path))
-        return vars
-
-    @overlay_profile
-    def __call__(self):
-        return super().__call__()
-
-
-def find_in(root: Path, needle: Path, case_sensitive=False) -> Path | None:
-    """Enables finding subpaths case-insensitively on case-sensitive platforms."""
-    if (root / needle).exists():
-        return root / needle  # If it exists, we found it exactly.
-    if case_sensitive:
-        return None  # Otherwise, there is no case sensitive match.
-
-    cur = root
-    for part in needle.parts:
-        if (cur / part).exists():
-            cur = cur / part
-        else:
-            for entry in cur.iterdir():
-                if entry.name.lower() == part.lower():
-                    cur = cur / entry.name  # Found it with alternate casing
-                    break
-            else:
-                return None  # No case insensitive match for the current part either
-
-    return cur
-
-
-def find_upwards(needle: Path, case_sensitive=False) -> Path | None:
-    """
-    Find the nearest ancestor which contains the given path, if any, and returns that qualified path.
-    """
-    # If absolute, return as-is
-    if needle.is_absolute():
-        return needle
-
-    cur = Path.cwd()
-
-    # Keep going up until we hit the root
-    while True:
-        found = find_in(cur, needle, case_sensitive)
-        if found:
-            return found
-
-        if cur == cur.parent:
-            return None  # Stop if we're at root directory
-        else:
-            cur = cur.parent
-
-
-# ------------------------------------------------------------------------------
-# Provenance Tracking
-# ------------------------------------------------------------------------------
-
-__og_default_call = DefaultSettingsSource.__call__
-
-
-def inject_provenance(self: DefaultSettingsSource):
-    """
-    Captures which sources provided which values to help explain the final state of the config.
-    """
-    final = __og_default_call(self)
-
-    if "config_provenance" in self.settings_cls.model_fields:
-        final_sources = {**self.settings_sources_data, "DefaultSettingsSource": final}
-        final["config_provenance"] = pivot_config_sources(final_sources)
-
-    return final
-
-
-DefaultSettingsSource.__call__ = inject_provenance
 
 
 def pivot_config_sources(
@@ -215,6 +58,29 @@ def flatten_dict(d: dict, prefix: str = "") -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------------------
+# Provenance Tracking
+# ------------------------------------------------------------------------------
+
+__og_default_call = DefaultSettingsSource.__call__
+
+
+def inject_provenance(self: DefaultSettingsSource):
+    """
+    Captures which sources provided which values to help explain the final state of the config.
+    """
+    final = __og_default_call(self)
+
+    if "config_provenance" in self.settings_cls.model_fields:
+        final_sources = {**self.settings_sources_data, "DefaultSettingsSource": final}
+        final["config_provenance"] = pivot_config_sources(final_sources)
+
+    return final
+
+
+DefaultSettingsSource.__call__ = inject_provenance
+
+
+# ------------------------------------------------------------------------------
 # Provenance Explanation
 # ------------------------------------------------------------------------------
 
@@ -235,6 +101,7 @@ SOURCE_LABELS = {
     "InitSettingsSource": "passed kwarg",
     "EnvSettingsSource": "environment variable",
     "ProfileMixin": "active profile",
+    "AncestorYamlConfigSettingsSource": "config.yaml",
     "AncestorTomlConfigSettingsSource": "config.toml",
     "DefaultSettingsSource": "default",
 }
@@ -307,7 +174,8 @@ class BaseConfig(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        toml_file="config.toml",
+        toml_file=None,
+        yaml_file=None,
         extra="ignore",
         nested_model_default_partial_update=True,
         env_nested_delimiter="__",
@@ -354,10 +222,22 @@ class BaseConfig(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        return (
-            init_settings,
-            env_settings,
-            dotenv_settings,
-            AncestorTomlConfigSettingsSource(settings_cls),
-            file_secret_settings,
-        )
+        sources = [init_settings, env_settings, dotenv_settings]
+
+        yaml_file = settings_cls.model_config.get("yaml_file")
+        toml_file = settings_cls.model_config.get("toml_file")
+
+        if yaml_file and toml_file:
+            raise ValueError(
+                "Cannot specify both 'yaml_file' and 'toml_file' in model_config. "
+                "Please use only one config file format."
+            )
+
+        if yaml_file:
+            sources.append(AncestorYamlConfigSettingsSource(settings_cls, yaml_file))
+        elif toml_file:
+            sources.append(AncestorTomlConfigSettingsSource(settings_cls, toml_file))
+
+        sources.append(file_secret_settings)
+
+        return tuple(sources)
