@@ -77,7 +77,7 @@ def inject_provenance(self: DefaultSettingsSource):
     return final
 
 
-DefaultSettingsSource.__call__ = inject_provenance
+DefaultSettingsSource.__call__ = inject_provenance # type: ignore[method-assign]
 
 
 # ------------------------------------------------------------------------------
