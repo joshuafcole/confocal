@@ -27,22 +27,22 @@ class Config(BaseConfig):
 
     # Engine
     engine: str | None = None
-    engine_size = "S"
+    engine_size: str = "S"
     engine_auto_suspend: int = 60
 
     # Flags
-    use_graph_index = True
-    use_package_manager = False
-    ensure_change_tracking = False
+    use_graph_index: bool = True
+    use_package_manager: bool = False
+    ensure_change_tracking: bool = False
 
 
 class AzureConfig(Config):
     platform: Literal["azure"]
-    host = "azure.relationalai.com"
-    port = 443
-    region = "us-east"
-    scheme = "https"
-    client_credentials_url = "https://login.relationalai.com/oauth/token"
+    host: str = "azure.relationalai.com"
+    port: int = 443
+    region: str = "us-east"
+    scheme: str = "https"
+    client_credentials_url: str = "https://login.relationalai.com/oauth/token"
     client_id: str
     client_secret: str
 
@@ -51,17 +51,30 @@ class SnowflakeConfig(Config):
     platform: Literal["snowflake"] = "snowflake"
     user: str
     account: str
-    role = "PUBLIC"
+    role: str = "PUBLIC"
     warehouse: str
     rai_app_name: str
 
     # Override default engine size
-    engine_size = "HIGHMEM_X64_S"
+    engine_size: str = "HIGHMEM_X64_S"
 
+
+# ------------------------------------------------------------------------------
+# Example 2: YAML Config
+# ------------------------------------------------------------------------------
+
+class YamlConfig(BaseConfig):
+    model_config = SettingsConfigDict(
+        yaml_file="config.yaml",
+    )
+
+    database_url: str
+    debug: bool = False
+
+
+# ------------------------------------------------------------------------------
+# Run Examples
+# ------------------------------------------------------------------------------
 
 cfg = Config(foo="bye", compiler={"optimization_level": 5}, alpha="h")
-cfg.explain(True)
-
 cfg.explain()
-
-Config.load(foo="bye", compiler={"optimization_level": 5}, alpha="h")

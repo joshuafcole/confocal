@@ -2,10 +2,9 @@
 
 from .config import (
     BaseConfig,
-    deep_merge,
-    find_upwards,
     show_provenance,
 )
+from .utils import find_upwards, deep_merge
 
 __version__ = "0.1.0"
 __all__ = [
