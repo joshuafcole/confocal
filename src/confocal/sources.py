@@ -3,9 +3,21 @@
 from __future__ import annotations
 import os
 import re
-import tomllib
+import sys
 from pathlib import Path
 from typing import Any
+
+# tomllib is only available in Python 3.11+, use tomli for older versions
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        raise ImportError(
+            "tomli is required for Python < 3.11. "
+            "Install it with: pip install tomli"
+        )
 
 from pydantic_settings.sources import DEFAULT_PATH, PathType
 from pydantic_settings import BaseSettings
