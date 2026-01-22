@@ -1,0 +1,109 @@
+name: Bump Release Version
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'pyproject.toml'
+
+jobs:
+  TagWithSemver:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag-new-version.outputs.version_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install toml
+
+      - name: Extract version from pyproject.toml
+        id: extract_version
+        run: |
+          VERSION=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['version'])")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Check if version changed in this commit
+        id: version_check
+        run: |
+          # Get the version from the previous commit (or default to 0.0.0 if first commit)
+          git show HEAD^:pyproject.toml > /tmp/old_pyproject.toml 2>/dev/null || echo "[project]" > /tmp/old_pyproject.toml
+          OLD_VERSION=$(python -c "import toml; config = toml.load('/tmp/old_pyproject.toml'); print(config.get('project', {}).get('version', '0.0.0'))" 2>/dev/null || echo "0.0.0")
+          NEW_VERSION="${{ steps.extract_version.outputs.version }}"
+
+          echo "Previous version: $OLD_VERSION"
+          echo "Current version: $NEW_VERSION"
+
+          # Check if version changed
+          if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "ℹ Version unchanged ($NEW_VERSION) - skipping release"
+            exit 0
+          fi
+
+          # Version changed - now verify ONLY version changed (no other modifications)
+          echo "✓ Version changed from $OLD_VERSION to $NEW_VERSION"
+
+          # Check if any files other than pyproject.toml changed
+          OTHER_FILES=$(git diff --name-only HEAD^ HEAD | grep -v '^pyproject.toml$' | wc -l)
+          if [ "$OTHER_FILES" -gt 0 ]; then
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "::warning::Version changed but other files were also modified. For release, version bump must be in a separate commit."
+            echo "::warning::Changed files:"
+            git diff --name-only HEAD^ HEAD
+            exit 0
+          fi
+
+          # Check if anything other than version line changed in pyproject.toml
+          DIFF=$(git diff HEAD^ HEAD pyproject.toml)
+          # Count lines that changed (excluding version line)
+          NON_VERSION_CHANGES=$(echo "$DIFF" | grep -E '^\+|^-' | grep -v '^[\+\-][\+\-][\+\-]' | grep -v "version = " | wc -l)
+
+          if [ "$NON_VERSION_CHANGES" -gt 0 ]; then
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "::warning::Version changed but other fields in pyproject.toml were also modified."
+            echo "::warning::For release, version bump must be in a separate commit with ONLY version change."
+            exit 0
+          fi
+
+          # All checks passed - this is a clean version bump commit
+          echo "should_release=true" >> $GITHUB_OUTPUT
+          echo "✓ Clean version bump commit - will create release"
+
+      - name: Bump version and push tag
+        if: steps.version_check.outputs.should_release == 'true'
+        id: tag-new-version
+        run: ./.github/scripts/update_semver.sh ${{ steps.extract_version.outputs.version }} "v"
+
+  CreateRelease:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    if: needs.TagWithSemver.outputs.tag != ''
+    needs: [TagWithSemver]
+    steps:
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.TagWithSemver.outputs.tag }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  PublishToPyPI:
+    name: Dispatch publish to PyPI workflow
+    needs: [CreateRelease, TagWithSemver]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger publish workflow
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: publish-to-pypi.yml
+          inputs: '{"ref": "${{ needs.TagWithSemver.outputs.tag }}", "use_test_pypi": false}'

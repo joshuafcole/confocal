@@ -8,6 +8,7 @@ dist
 *.egg
 build
 htmlcov
+.coverage
 .venv
 .coverage
 .coverage.*
