@@ -19,9 +19,14 @@ dependencies = [
 dev = [
     "build>=0.10.0",
     "twine>=4.0.0",
-    "pytest>=7.0.0",
+    "mypy>=1.0.0",
+    "types-PyYAML>=6.0.0",
 ]
-
+test = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-env>=1.1.0",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -30,6 +35,18 @@ build-backend = "hatchling.build"
 [tool.hatch.metadata]
 allow-direct-references = true
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--cov=confocal",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
 
 [project.urls]
 Homepage = "https://github.com/joshuafcole/confocal"

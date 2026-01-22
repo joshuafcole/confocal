@@ -53,11 +53,11 @@ class AncestorConfigMixin:
         for file in files:
             file_path = Path(file).expanduser()
             if file_path.is_file():
-                vars.update(self._read_file(file_path))
+                vars.update(self._read_file(file_path))  # type: ignore[attr-defined]
             else:
                 found_path = find_upwards(file_path, self._case_sensitive)
                 if found_path:
-                    vars.update(self._read_file(found_path))
+                    vars.update(self._read_file(found_path))  # type: ignore[attr-defined]
         return vars
 
 
