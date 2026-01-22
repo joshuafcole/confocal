@@ -88,6 +88,8 @@ jobs:
     runs-on: ubuntu-latest
     if: needs.TagWithSemver.outputs.tag != ''
     needs: [TagWithSemver]
+    permissions:
+      contents: write
     steps:
       - name: Create release
         uses: softprops/action-gh-release@v2
