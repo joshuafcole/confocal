@@ -42,22 +42,33 @@ class AncestorConfigMixin:
         self._case_sensitive = case_sensitive
         super().__init__(*args, **kwargs)
 
-    def _read_files(self, files: PathType | None) -> dict[str, Any]:
+    def _read_files(self, files: PathType | None, deep_merge: bool = False) -> dict[str, Any]:
         """Read config files, searching upwards if not found directly."""
         if files is None:
             return {}
         if isinstance(files, (str, os.PathLike)):
             files = [files]
 
+        from .utils import deep_merge as merge_dicts
+
         vars: dict[str, Any] = {}
         for file in files:
             file_path = Path(file).expanduser()
+            file_data = None
+
             if file_path.is_file():
-                vars.update(self._read_file(file_path))  # type: ignore[attr-defined]
+                file_data = self._read_file(file_path)  # type: ignore[attr-defined]
             else:
                 found_path = find_upwards(file_path, self._case_sensitive)
                 if found_path:
-                    vars.update(self._read_file(found_path))  # type: ignore[attr-defined]
+                    file_data = self._read_file(found_path)  # type: ignore[attr-defined]
+
+            if file_data:
+                if deep_merge:
+                    vars = merge_dicts(vars, file_data)
+                else:
+                    vars.update(file_data)
+
         return vars
 
 
