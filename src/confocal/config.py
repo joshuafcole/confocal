@@ -2,7 +2,9 @@
 
 #!/usr/bin/env python3
 from __future__ import annotations
+import os
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, NamedTuple
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,7 +15,30 @@ from pydantic_settings.sources import (
 from rich.tree import Tree
 import rich
 
-from .sources import AncestorTomlConfigSettingsSource, AncestorYamlConfigSettingsSource
+from .sources import AncestorTomlConfigSettingsSource, AncestorYamlConfigSettingsSource, _resolved_paths
+
+
+# ------------------------------------------------------------------------------
+# Extended SettingsConfigDict
+# ------------------------------------------------------------------------------
+
+
+class ConfocalSettingsConfigDict(SettingsConfigDict, total=False):
+    """Extension of pydantic-settings' ``SettingsConfigDict`` with confocal-specific options.
+
+    Use this instead of ``SettingsConfigDict`` when you need ``env_file_override``.
+
+    Extra fields
+    ------------
+    env_file_override : str, optional
+        Name of an environment variable whose value, when set, overrides the
+        ``yaml_file`` / ``toml_file`` path configured on the class.  The env var
+        value must be a path to a file of the same format as the class's configured
+        file type (YAML or TOML).  If the env var is not set the configured
+        ``yaml_file`` / ``toml_file`` is used unchanged.
+    """
+
+    env_file_override: str
 
 # ------------------------------------------------------------------------------
 # Profile Config Settings Source
@@ -61,18 +86,30 @@ def flatten_dict(d: dict, prefix: str = "") -> dict[str, Any]:
 # Provenance Tracking
 # ------------------------------------------------------------------------------
 
+# Module-level store: maps settings class → computed provenance dict.
+# Populated by inject_provenance (called during source evaluation) and consumed
+# by BaseConfig.model_post_init.  Using the class as key is safe because only
+# one instance is being built at a time per class within a single thread.
+_pending_provenance: dict[type, dict] = {}
+
 __og_default_call = DefaultSettingsSource.__call__
 
 
 def inject_provenance(self: DefaultSettingsSource):
     """
     Captures which sources provided which values to help explain the final state of the config.
+
+    The provenance dict cannot be injected directly into the returned ``final`` dict because
+    pydantic-settings strips any value that equals its field default before passing the merged
+    state to the model constructor (``config_provenance`` defaults to ``{}``, so it would always
+    be stripped).  Instead we stash it in ``_pending_provenance`` keyed by the settings class
+    and let ``BaseConfig.model_post_init`` pick it up after the model is built.
     """
     final = __og_default_call(self)
 
     if "config_provenance" in self.settings_cls.model_fields:
         final_sources = {**self.settings_sources_data, "DefaultSettingsSource": final}
-        final["config_provenance"] = pivot_config_sources(final_sources)
+        _pending_provenance[self.settings_cls] = pivot_config_sources(final_sources)
 
     return final
 
@@ -108,19 +145,25 @@ SOURCE_LABELS = {
 
 
 def show_provenance_node(
-    parent: Tree, name: str, sources: list[tuple[str, Any]], verbose: bool
+    parent: Tree,
+    name: str,
+    sources: list[tuple[str, Any]],
+    verbose: bool,
+    source_labels: dict[str, str] | None = None,
 ) -> None:
     if not sources:
         return
 
+    labels = source_labels if source_labels is not None else SOURCE_LABELS
     parts = [f"{name} ="]
     for ix, (current_source, current_value) in enumerate(sources):
         (fg_val, bg_val, fg_source, bg_source) = (
             active_style if ix == 0 else inactive_style
         )
+        label = labels.get(current_source, current_source)
         parts.append(
             f"[{fg_val} on {bg_val}] {current_value} [/]"
-            + f"[{fg_source} on {bg_source}] {SOURCE_LABELS[current_source]} [/]"
+            + f"[{fg_source} on {bg_source}] {label} [/]"
         )
         if not verbose:
             break
@@ -135,6 +178,7 @@ def show_provenance(
     skip_fields: set[str] | None = None,
     tree: Tree | None = None,
     path: str = "",
+    source_labels: dict[str, str] | None = None,
 ) -> None:
     """Pretty print config showing value sources and overrides."""
     if skip_fields is None:
@@ -153,11 +197,11 @@ def show_provenance(
         if hasattr(value, "model_fields"):
             # Nested config
             subtree = tree.add(field_name)
-            show_provenance(value, provenance, verbose, skip_fields, subtree, full_path)
+            show_provenance(value, provenance, verbose, skip_fields, subtree, full_path, source_labels)
         else:
             # leaf property
             sources = provenance.get(field_name) or [("DefaultSettingsSource", value)]
-            show_provenance_node(tree, field_name, sources, verbose)
+            show_provenance_node(tree, field_name, sources, verbose, source_labels)
 
     if is_root:
         rich.print(tree)
@@ -188,7 +232,26 @@ class BaseConfig(BaseSettings):
     profiles: dict[str, dict[str, Any]] = Field(default_factory=dict, alias="profile")
     active_profile: str | None = Field(default=None)
 
+    def model_post_init(self, __context: Any) -> None:
+        """Attach provenance data and resolved config file path computed during settings-source evaluation."""
+        prov = _pending_provenance.pop(type(self), None)
+        if prov is not None:
+            object.__setattr__(self, "config_provenance", prov)
+
+        resolved_path = _resolved_paths.pop(type(self), None)
+        if resolved_path is not None:
+            object.__setattr__(self, "_resolved_config_file", str(resolved_path))
+
     def explain(self, verbose=False):
+        # Show the resolved config file path as a header line
+        file_path = getattr(self, "_resolved_config_file", None)
+        if file_path:
+            env_override_key = self.model_config.get("env_file_override")
+            if env_override_key and os.environ.get(str(env_override_key)):
+                rich.print(f"[bold]Config file:[/bold] [cyan]{file_path}[/cyan] [dim](via {env_override_key})[/dim]")
+            else:
+                rich.print(f"[bold]Config file:[/bold] [cyan]{file_path}[/cyan]")
+
         tree = Tree(self._config_title or self.__class__.__name__)
         profiles = getattr(self, "profiles", None)
         active = getattr(self, "active_profile", None)
@@ -201,7 +264,17 @@ class BaseConfig(BaseSettings):
                     else f"[dim]{profile}[/dim]"
                 )
 
-        show_provenance(self, self.config_provenance, verbose, None, tree)
+        # Build source labels — show the actual file path when env_file_override is active
+        source_labels = dict(SOURCE_LABELS)
+        env_override_key = self.model_config.get("env_file_override")
+        if env_override_key:
+            env_path = os.environ.get(str(env_override_key))
+            if env_path:
+                label = f"{env_path} (via {env_override_key})"
+                source_labels["AncestorYamlConfigSettingsSource"] = label
+                source_labels["AncestorTomlConfigSettingsSource"] = label
+
+        show_provenance(self, self.config_provenance, verbose, None, tree, source_labels=source_labels)
         rich.print(tree)
 
     @classmethod
@@ -232,6 +305,28 @@ class BaseConfig(BaseSettings):
                 "Cannot specify both 'yaml_file' and 'toml_file' in model_config. "
                 "Please use only one config file format."
             )
+
+        # If the class opts in via env_file_override, check the named env var and
+        # replace yaml_file / toml_file with the env var path when it is set.
+        # Format is determined from the env var path's extension, regardless of
+        # what yaml_file / toml_file was configured on the class (it may be None
+        # if the default file was not found at import time).
+        env_override_key = settings_cls.model_config.get("env_file_override")
+        if env_override_key:
+            env_path = os.environ.get(str(env_override_key))
+            if env_path:
+                ext = Path(env_path).suffix.lower()
+                if ext in (".yaml", ".yml"):
+                    yaml_file = [env_path]
+                    toml_file = None
+                elif ext == ".toml":
+                    toml_file = env_path
+                    yaml_file = None
+                else:
+                    raise ValueError(
+                        f"{env_override_key}={env_path!r} has unsupported extension {ext!r}. "
+                        "Expected .yaml, .yml, or .toml."
+                    )
 
         if yaml_file:
             sources.append(AncestorYamlConfigSettingsSource(settings_cls, yaml_file))

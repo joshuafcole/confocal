@@ -30,6 +30,11 @@ import yaml
 from .utils import find_upwards, overlay_profile
 
 
+# Maps settings class → the resolved config file path found during source evaluation.
+# Consumed by BaseConfig.model_post_init to populate _resolved_config_file.
+_resolved_paths: dict[type, Path] = {}
+
+
 # ------------------------------------------------------------------------------
 # Config Source Mixins
 # ------------------------------------------------------------------------------
@@ -57,10 +62,12 @@ class AncestorConfigMixin:
             file_data = None
 
             if file_path.is_file():
+                _resolved_paths[self.settings_cls] = file_path  # type: ignore[attr-defined]
                 file_data = self._read_file(file_path)  # type: ignore[attr-defined]
             else:
                 found_path = find_upwards(file_path, self._case_sensitive)
                 if found_path:
+                    _resolved_paths[self.settings_cls] = found_path  # type: ignore[attr-defined]
                     file_data = self._read_file(found_path)  # type: ignore[attr-defined]
 
             if file_data:
@@ -137,6 +144,7 @@ class AncestorTomlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin,
         case_sensitive: bool = False,
         enable_env_vars: bool = True,
     ):
+        self.settings_cls = settings_cls  # set early — base __init__ calls _read_files before setting this
         self._case_sensitive = case_sensitive
         self._enable_env_vars = enable_env_vars
 
@@ -169,6 +177,7 @@ class AncestorYamlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin,
         case_sensitive: bool = False,
         enable_env_vars: bool = True,
     ):
+        self.settings_cls = settings_cls  # set early — base __init__ calls _read_files before setting this
         self._case_sensitive = case_sensitive
         self._enable_env_vars = enable_env_vars
 
