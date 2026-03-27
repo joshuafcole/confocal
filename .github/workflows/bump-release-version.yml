@@ -109,3 +109,4 @@ jobs:
         with:
           workflow: publish-to-pypi.yml
           inputs: '{"ref": "${{ needs.TagWithSemver.outputs.tag }}", "use_test_pypi": false}'
+          token: ${{ secrets.GH_PAT }}
