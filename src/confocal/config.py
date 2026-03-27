@@ -247,7 +247,7 @@ class BaseConfig(BaseSettings):
         file_path = getattr(self, "_resolved_config_file", None)
         if file_path:
             env_override_key = self.model_config.get("env_file_override")
-            if env_override_key and os.environ.get(env_override_key):
+            if env_override_key and os.environ.get(str(env_override_key)):
                 rich.print(f"[bold]Config file:[/bold] [cyan]{file_path}[/cyan] [dim](via {env_override_key})[/dim]")
             else:
                 rich.print(f"[bold]Config file:[/bold] [cyan]{file_path}[/cyan]")
@@ -268,7 +268,7 @@ class BaseConfig(BaseSettings):
         source_labels = dict(SOURCE_LABELS)
         env_override_key = self.model_config.get("env_file_override")
         if env_override_key:
-            env_path = os.environ.get(env_override_key)
+            env_path = os.environ.get(str(env_override_key))
             if env_path:
                 label = f"{env_path} (via {env_override_key})"
                 source_labels["AncestorYamlConfigSettingsSource"] = label
@@ -313,7 +313,7 @@ class BaseConfig(BaseSettings):
         # if the default file was not found at import time).
         env_override_key = settings_cls.model_config.get("env_file_override")
         if env_override_key:
-            env_path = os.environ.get(env_override_key)
+            env_path = os.environ.get(str(env_override_key))
             if env_path:
                 ext = Path(env_path).suffix.lower()
                 if ext in (".yaml", ".yml"):
