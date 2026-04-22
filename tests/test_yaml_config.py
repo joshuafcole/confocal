@@ -1,7 +1,31 @@
 """Tests for YAML configuration loading with env var templating."""
 import os
+from typing import Optional
 import pytest
+from pydantic import AliasChoices, Field
+from pydantic_settings import SettingsConfigDict
+from confocal import BaseConfig
 from tests import YamlTestConfig
+
+
+class AliasedProfileYamlConfig(BaseConfig):
+    """Config with a validation alias on active_profile, to test overlay_profile alias resolution."""
+
+    model_config = SettingsConfigDict(
+        yaml_file="tests/fixtures/test_config.yaml",
+        extra="ignore",
+        nested_model_default_partial_update=True,
+    )
+
+    active_profile: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("CUSTOM_ACTIVE_PROFILE", "ACTIVE_PROFILE", "active_profile"),
+    )
+    database_url: str
+    api_key: Optional[str] = None
+    debug: bool = False
+    timeout: int = 30
+    max_connections: Optional[int] = None
 
 
 class TestYamlConfigLoading:
@@ -75,3 +99,41 @@ class TestYamlConfigLoading:
         
         assert config.database_url == "postgresql://partial:5432/test"
         assert config.api_key == "dev_key_123"  # Uses default
+
+
+class TestActiveProfileAliasResolution:
+    """Test that overlay_profile respects validation_alias on active_profile.
+
+    When active_profile has AliasChoices, an env var matching a non-field-name
+    alias (e.g. CUSTOM_ACTIVE_PROFILE) should still trigger the profile overlay
+    and take priority over the YAML's own active_profile value.
+    """
+
+    @pytest.fixture(autouse=True)
+    def clean_env(self):
+        keys = ["CUSTOM_ACTIVE_PROFILE", "ACTIVE_PROFILE"]
+        saved = {k: os.environ.pop(k, None) for k in keys}
+        yield
+        for k, v in saved.items():
+            if v is not None:
+                os.environ[k] = v
+
+    def test_alias_env_var_selects_profile(self):
+        os.environ["CUSTOM_ACTIVE_PROFILE"] = "prod"
+        config = AliasedProfileYamlConfig()
+        assert config.active_profile == "prod"
+        assert config.debug is False
+        assert config.max_connections == 100
+
+    def test_alias_env_var_overrides_yaml_active_profile(self):
+        # YAML has active_profile: dev — env alias should win
+        os.environ["CUSTOM_ACTIVE_PROFILE"] = "prod"
+        config = AliasedProfileYamlConfig()
+        assert config.active_profile == "prod"
+        assert config.max_connections == 100  # prod value, not dev's 10
+
+    def test_field_name_env_var_still_works(self):
+        os.environ["ACTIVE_PROFILE"] = "prod"
+        config = AliasedProfileYamlConfig()
+        assert config.debug is False
+        assert config.max_connections == 100
