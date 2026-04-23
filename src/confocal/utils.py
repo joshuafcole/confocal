@@ -33,10 +33,26 @@ def overlay_profile(fn):
         source_state = fn(self)
         cur_state = deep_merge(source_state, self.current_state)
 
-        # Find the profile selector field
+        # Find the profile selector field.
+        # Check the field name and all its validation aliases — pydantic-settings
+        # keys alias-matched env vars by the alias name, not the field name.
         profile_field = "active_profile"
+        field_info = self.settings_cls.model_fields.get(profile_field)
+        candidate_keys = [profile_field]
+        if field_info is not None:
+            va = field_info.validation_alias
+            if va is not None:
+                from pydantic import AliasChoices
+                if isinstance(va, AliasChoices):
+                    candidate_keys += [c for c in va.choices if isinstance(c, str)]
+                elif isinstance(va, str):
+                    candidate_keys.append(va)
 
-        active_profile_name = cur_state.get(profile_field)
+        # Check higher-priority sources (env vars, init) first, then fall back to YAML.
+        active_profile_name = (
+            next((self.current_state[k] for k in candidate_keys if k in self.current_state), None)
+            or cur_state.get(profile_field)
+        )
 
         # Check both singular and plural forms for profiles
         profiles = cur_state.get("profiles") or cur_state.get("profile", {})
