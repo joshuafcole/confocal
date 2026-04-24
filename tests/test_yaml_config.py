@@ -154,6 +154,18 @@ class TestActiveProfileAliasResolution:
         assert config.debug is False
         assert config.max_connections == 100
 
+    def test_yaml_active_profile_resolves_when_aliases_reorder_key(self):
+        """YAML uses key 'active_profile', but AliasChoices puts a non-field-name
+        alias first. pydantic-settings' YAML source rewrites the returned key to
+        the first AliasChoices entry, so the overlay must scan all candidate keys
+        in cur_state — not just 'active_profile'."""
+        # No env vars set — rely on YAML's own active_profile: dev
+        config = AliasedProfileYamlConfig()
+        assert config.active_profile == "dev"
+        # Overlay applied (dev profile has debug=True, max_connections=10)
+        assert config.debug is True
+        assert config.max_connections == 10
+
 
 class TestProfilesKeyAlias:
     """Test that both 'profile:' and 'profiles:' YAML keys populate config.profiles.
