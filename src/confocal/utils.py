@@ -48,10 +48,14 @@ def overlay_profile(fn):
                 elif isinstance(va, str):
                     candidate_keys.append(va)
 
-        # Check higher-priority sources (env vars, init) first, then fall back to YAML.
+        # Check higher-priority sources (env vars, init) first, then fall back to any
+        # candidate key in the merged state. cur_state may store the value under an
+        # alias key — pydantic-settings' YamlConfigSettingsSource rewrites matched keys
+        # to the first AliasChoices entry — so we must scan every candidate, not just
+        # the field name.
         active_profile_name = (
             next((self.current_state[k] for k in candidate_keys if k in self.current_state), None)
-            or cur_state.get(profile_field)
+            or next((cur_state[k] for k in candidate_keys if k in cur_state), None)
         )
 
         # Check both singular and plural forms for profiles
