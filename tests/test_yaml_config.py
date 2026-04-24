@@ -8,6 +8,22 @@ from confocal import BaseConfig
 from tests import YamlTestConfig
 
 
+class ProfileSingularYamlConfig(BaseConfig):
+    """Config loading a fixture that uses the singular 'profile:' key."""
+
+    model_config = SettingsConfigDict(
+        yaml_file="tests/fixtures/test_config_profile_singular.yaml",
+        extra="ignore",
+        nested_model_default_partial_update=True,
+    )
+
+    database_url: str
+    api_key: Optional[str] = None
+    debug: bool = False
+    timeout: int = 30
+    max_connections: Optional[int] = None
+
+
 class AliasedProfileYamlConfig(BaseConfig):
     """Config with a validation alias on active_profile, to test overlay_profile alias resolution."""
 
@@ -135,5 +151,38 @@ class TestActiveProfileAliasResolution:
     def test_field_name_env_var_still_works(self):
         os.environ["ACTIVE_PROFILE"] = "prod"
         config = AliasedProfileYamlConfig()
+        assert config.debug is False
+        assert config.max_connections == 100
+
+
+class TestProfilesKeyAlias:
+    """Test that both 'profile:' and 'profiles:' YAML keys populate config.profiles.
+
+    Before the fix, only 'profile:' populated config.profiles (pydantic alias).
+    'profiles:' worked for overlay but left config.profiles empty.
+    After the fix, both keys are accepted via AliasChoices.
+    """
+
+    def test_profiles_plural_key_populates_config_profiles(self):
+        # test_config.yaml uses 'profiles:' (plural)
+        config = YamlTestConfig(active_profile="dev")
+        assert "dev" in config.profiles
+        assert "prod" in config.profiles
+
+    def test_profile_singular_key_populates_config_profiles(self):
+        # test_config_profile_singular.yaml uses 'profile:' (singular)
+        config = ProfileSingularYamlConfig(active_profile="dev")
+        assert "dev" in config.profiles
+        assert "prod" in config.profiles
+
+    def test_profiles_plural_overlay_applies_correctly(self):
+        # Overlay still applies with 'profiles:' key
+        config = YamlTestConfig(active_profile="prod")
+        assert config.debug is False
+        assert config.max_connections == 100
+
+    def test_profile_singular_overlay_applies_correctly(self):
+        # Overlay still applies with 'profile:' key
+        config = ProfileSingularYamlConfig(active_profile="prod")
         assert config.debug is False
         assert config.max_connections == 100

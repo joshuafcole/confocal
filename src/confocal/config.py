@@ -6,7 +6,7 @@ import os
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, NamedTuple
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import (
     PydanticBaseSettingsSource,
@@ -229,7 +229,10 @@ class BaseConfig(BaseSettings):
     config_provenance: dict[str, list[tuple[str, Any]]] = Field(
         default_factory=dict, exclude=True, repr=False
     )
-    profiles: dict[str, dict[str, Any]] = Field(default_factory=dict, alias="profile")
+    profiles: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("profile", "profiles"),
+    )
     active_profile: str | None = Field(default=None)
 
     def model_post_init(self, __context: Any) -> None:
