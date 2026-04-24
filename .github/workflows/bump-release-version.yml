@@ -49,34 +49,8 @@ jobs:
             exit 0
           fi
 
-          # Version changed - now verify ONLY version changed (no other modifications)
-          echo "✓ Version changed from $OLD_VERSION to $NEW_VERSION"
-
-          # Check if any files other than pyproject.toml changed
-          OTHER_FILES=$(git diff --name-only HEAD^ HEAD | grep -v '^pyproject.toml$' | wc -l)
-          if [ "$OTHER_FILES" -gt 0 ]; then
-            echo "should_release=false" >> $GITHUB_OUTPUT
-            echo "::warning::Version changed but other files were also modified. For release, version bump must be in a separate commit."
-            echo "::warning::Changed files:"
-            git diff --name-only HEAD^ HEAD
-            exit 0
-          fi
-
-          # Check if anything other than version line changed in pyproject.toml
-          DIFF=$(git diff HEAD^ HEAD pyproject.toml)
-          # Count lines that changed (excluding version line)
-          NON_VERSION_CHANGES=$(echo "$DIFF" | grep -E '^\+|^-' | grep -v '^[\+\-][\+\-][\+\-]' | grep -v "version = " | wc -l)
-
-          if [ "$NON_VERSION_CHANGES" -gt 0 ]; then
-            echo "should_release=false" >> $GITHUB_OUTPUT
-            echo "::warning::Version changed but other fields in pyproject.toml were also modified."
-            echo "::warning::For release, version bump must be in a separate commit with ONLY version change."
-            exit 0
-          fi
-
-          # All checks passed - this is a clean version bump commit
           echo "should_release=true" >> $GITHUB_OUTPUT
-          echo "✓ Clean version bump commit - will create release"
+          echo "✓ Version changed from $OLD_VERSION to $NEW_VERSION - will create release"
 
       - name: Bump version and push tag
         if: steps.version_check.outputs.should_release == 'true'
