@@ -1,0 +1,20 @@
+# Test YAML config using the singular "profile:" key (backward compat)
+active_profile: dev
+
+profile:
+  dev:
+    database_url: "postgresql://localhost:5432/dev"
+    api_key: "dev_key_singular"
+    debug: true
+    max_connections: 10
+
+  prod:
+    database_url: "postgresql://prod:5432/prod"
+    api_key: "prod_key_singular"
+    debug: false
+    max_connections: 100
+
+# Global defaults
+database_url: "default_db"
+debug: false
+timeout: 30
