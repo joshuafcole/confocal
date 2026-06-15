@@ -120,3 +120,36 @@ def find_upwards(needle: Path, case_sensitive=False) -> Path | None:
             return None  # Stop if we're at root directory
         else:
             cur = cur.parent
+
+
+def find_all_upwards(needle: Path, case_sensitive=False) -> list[Path]:
+    """
+    Find every ancestor (including the current directory) that contains the given
+    path, walking from the current working directory up to the filesystem root.
+
+    Returns the qualified matches ordered nearest-first: index 0 is the match closest
+    to the current directory, and the last element is the one closest to the filesystem
+    root. Returns an empty list if no ancestor contains the path.
+
+    This is the multi-match counterpart of :func:`find_upwards`, which returns only the
+    nearest match. The walk stops at the filesystem root, matching ``find_upwards``.
+
+    For an absolute ``needle`` the path is returned as-is in a single-element list,
+    mirroring :func:`find_upwards`.
+    """
+    if needle.is_absolute():
+        return [needle]
+
+    matches: list[Path] = []
+    cur = Path.cwd()
+
+    while True:
+        found = find_in(cur, needle, case_sensitive)
+        if found:
+            matches.append(found)
+
+        if cur == cur.parent:
+            break  # Reached the filesystem root
+        cur = cur.parent
+
+    return matches

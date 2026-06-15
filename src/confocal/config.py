@@ -36,9 +36,17 @@ class ConfocalSettingsConfigDict(SettingsConfigDict, total=False):
         value must be a path to a file of the same format as the class's configured
         file type (YAML or TOML).  If the env var is not set the configured
         ``yaml_file`` / ``toml_file`` is used unchanged.
+    hierarchical_merge : bool, optional
+        When ``True``, the YAML source collects **every** matching config file from the
+        current directory up to the filesystem root and deep-merges them, with the file
+        nearest the current directory winning on conflict (field-level merge).  When
+        ``False`` (default) only the nearest file is read, preserving the original
+        single-file behavior.  Has no effect when ``env_file_override`` is active (an
+        explicit override path wins outright, with no merge).
     """
 
     env_file_override: str
+    hierarchical_merge: bool
 
 # ------------------------------------------------------------------------------
 # Profile Config Settings Source
@@ -144,23 +152,42 @@ SOURCE_LABELS = {
 }
 
 
+def _abbreviate_home(text: str) -> str:
+    """Collapse a leading home-directory path to ``~`` for shorter display."""
+    home = os.path.expanduser("~")
+    if home and home != "~" and text.startswith(home):
+        return "~" + text[len(home):]
+    return text
+
+
 def show_provenance_node(
     parent: Tree,
     name: str,
     sources: list[tuple[str, Any]],
     verbose: bool,
     source_labels: dict[str, str] | None = None,
+    primary_source: str | None = None,
 ) -> None:
     if not sources:
         return
 
     labels = source_labels if source_labels is not None else SOURCE_LABELS
+
+    # When the winning value came from the primary (highest-priority) source, show just
+    # the value — the primary file is already named in the header. Only fields whose
+    # value came from a *different* source get a source annotation. Verbose mode always
+    # shows the full chain.
+    if not verbose and primary_source is not None and sources[0][0] == primary_source:
+        fg_val, bg_val, _, _ = active_style
+        parent.add(f"{name} = [{fg_val} on {bg_val}] {sources[0][1]} [/]")
+        return
+
     parts = [f"{name} ="]
     for ix, (current_source, current_value) in enumerate(sources):
         (fg_val, bg_val, fg_source, bg_source) = (
             active_style if ix == 0 else inactive_style
         )
-        label = labels.get(current_source, current_source)
+        label = _abbreviate_home(labels.get(current_source, current_source))
         parts.append(
             f"[{fg_val} on {bg_val}] {current_value} [/]"
             + f"[{fg_source} on {bg_source}] {label} [/]"
@@ -179,8 +206,14 @@ def show_provenance(
     tree: Tree | None = None,
     path: str = "",
     source_labels: dict[str, str] | None = None,
+    primary_source: str | None = None,
 ) -> None:
-    """Pretty print config showing value sources and overrides."""
+    """Pretty print config showing value sources and overrides.
+
+    When ``primary_source`` is given, fields whose winning value came from that source
+    are shown without a source annotation (the primary file is named in the header);
+    only fields sourced elsewhere are annotated. See ``show_provenance_node``.
+    """
     if skip_fields is None:
         skip_fields = DEFAULT_SKIP_FIELDS
 
@@ -197,11 +230,12 @@ def show_provenance(
         if hasattr(value, "model_fields"):
             # Nested config
             subtree = tree.add(field_name)
-            show_provenance(value, provenance, verbose, skip_fields, subtree, full_path, source_labels)
+            show_provenance(value, provenance, verbose, skip_fields, subtree, full_path, source_labels, primary_source)
         else:
-            # leaf property
-            sources = provenance.get(field_name) or [("DefaultSettingsSource", value)]
-            show_provenance_node(tree, field_name, sources, verbose, source_labels)
+            # leaf property — provenance is keyed by the dotted full path (e.g.
+            # "connections.sf.account"), so look it up by full_path, not the leaf name.
+            sources = provenance.get(full_path) or [("DefaultSettingsSource", value)]
+            show_provenance_node(tree, field_name, sources, verbose, source_labels, primary_source)
 
     if is_root:
         rich.print(tree)
@@ -249,11 +283,12 @@ class BaseConfig(BaseSettings):
         # Show the resolved config file path as a header line
         file_path = getattr(self, "_resolved_config_file", None)
         if file_path:
+            shown_path = _abbreviate_home(str(file_path))
             env_override_key = self.model_config.get("env_file_override")
             if env_override_key and os.environ.get(str(env_override_key)):
-                rich.print(f"[bold]Config file:[/bold] [cyan]{file_path}[/cyan] [dim](via {env_override_key})[/dim]")
+                rich.print(f"[bold]Config file:[/bold] [cyan]{shown_path}[/cyan] [dim](via {env_override_key})[/dim]")
             else:
-                rich.print(f"[bold]Config file:[/bold] [cyan]{file_path}[/cyan]")
+                rich.print(f"[bold]Config file:[/bold] [cyan]{shown_path}[/cyan]")
 
         tree = Tree(self._config_title or self.__class__.__name__)
         profiles = getattr(self, "profiles", None)
@@ -277,7 +312,16 @@ class BaseConfig(BaseSettings):
                 source_labels["AncestorYamlConfigSettingsSource"] = label
                 source_labels["AncestorTomlConfigSettingsSource"] = label
 
-        show_provenance(self, self.config_provenance, verbose, None, tree, source_labels=source_labels)
+        # The resolved (nearest / highest-priority) config file is the "primary" source:
+        # fields from it are shown without an annotation; only fields sourced elsewhere
+        # are tagged. In hierarchical mode, provenance is keyed by file path so this
+        # matches; in single-file mode the file source is keyed by class name and never
+        # matches, leaving the original behavior unchanged.
+        primary_source = getattr(self, "_resolved_config_file", None)
+        show_provenance(
+            self, self.config_provenance, verbose, None, tree,
+            source_labels=source_labels, primary_source=primary_source,
+        )
         rich.print(tree)
 
     @classmethod
@@ -314,10 +358,12 @@ class BaseConfig(BaseSettings):
         # Format is determined from the env var path's extension, regardless of
         # what yaml_file / toml_file was configured on the class (it may be None
         # if the default file was not found at import time).
+        env_override_active = False
         env_override_key = settings_cls.model_config.get("env_file_override")
         if env_override_key:
             env_path = os.environ.get(str(env_override_key))
             if env_path:
+                env_override_active = True
                 ext = Path(env_path).suffix.lower()
                 if ext in (".yaml", ".yml"):
                     yaml_file = [env_path]
@@ -331,8 +377,11 @@ class BaseConfig(BaseSettings):
                         "Expected .yaml, .yml, or .toml."
                     )
 
+        # An explicit override path wins outright — never merge ancestors over it.
+        hierarchical = bool(settings_cls.model_config.get("hierarchical_merge")) and not env_override_active
+
         if yaml_file:
-            sources.append(AncestorYamlConfigSettingsSource(settings_cls, yaml_file))
+            sources.append(AncestorYamlConfigSettingsSource(settings_cls, yaml_file, hierarchical=hierarchical))
         elif toml_file:
             sources.append(AncestorTomlConfigSettingsSource(settings_cls, toml_file))
 
