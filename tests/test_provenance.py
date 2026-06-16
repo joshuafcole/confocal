@@ -43,6 +43,13 @@ class TestAbbreviateHome:
         monkeypatch.setenv("HOME", str(tmp_path))
         assert _abbreviate_home("/etc/raiconfig.yaml") == "/etc/raiconfig.yaml"
 
+    def test_does_not_mangle_sibling_sharing_home_prefix(self, monkeypatch):
+        monkeypatch.setenv("HOME", "/Users/me")
+        # /Users/meadow shares the "/Users/me" prefix but is not under HOME.
+        assert _abbreviate_home("/Users/meadow/raiconfig.yaml") == "/Users/meadow/raiconfig.yaml"
+        assert _abbreviate_home("/Users/me") == "~"
+        assert _abbreviate_home("/Users/me/x.yaml") == "~/x.yaml"
+
 
 class _Conn(BaseModel):
     account: str = ""

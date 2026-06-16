@@ -153,9 +153,17 @@ SOURCE_LABELS = {
 
 
 def _abbreviate_home(text: str) -> str:
-    """Collapse a leading home-directory path to ``~`` for shorter display."""
+    """Collapse a leading home-directory path to ``~`` for shorter display.
+
+    Only matches on a path boundary, so a sibling like ``/Users/meadow`` is not
+    mangled when ``HOME`` is ``/Users/me``.
+    """
     home = os.path.expanduser("~")
-    if home and home != "~" and text.startswith(home):
+    if not home or home == "~":
+        return text
+    if text == home:
+        return "~"
+    if text.startswith(home + os.sep):
         return "~" + text[len(home):]
     return text
 
@@ -210,9 +218,9 @@ def show_provenance(
 ) -> None:
     """Pretty print config showing value sources and overrides.
 
-    When ``primary_source`` is given, fields whose winning value came from that source
-    are shown without a source annotation (the primary file is named in the header);
-    only fields sourced elsewhere are annotated. See ``show_provenance_node``.
+    Every field shows its source tag. When ``primary_source`` is given, the tag for fields
+    from that source (the primary file, already named in the header) is dimmed, so values
+    that came from elsewhere stand out. See ``show_provenance_node``.
     """
     if skip_fields is None:
         skip_fields = DEFAULT_SKIP_FIELDS
@@ -353,10 +361,10 @@ class BaseConfig(BaseSettings):
                 source_labels["AncestorTomlConfigSettingsSource"] = label
 
         # The resolved (nearest / highest-priority) config file is the "primary" source:
-        # fields from it are shown without an annotation; only fields sourced elsewhere
-        # are tagged. In hierarchical mode, provenance is keyed by file path so this
-        # matches; in single-file mode the file source is keyed by class name and never
-        # matches, leaving the original behavior unchanged.
+        # its tag is dimmed (it's already named in the header) so values from other files
+        # stand out. In hierarchical mode, provenance is keyed by file path so this matches;
+        # in single-file mode the file source is keyed by class name and never matches,
+        # leaving the original rendering unchanged.
         primary_source = getattr(self, "_resolved_config_file", None)
         show_provenance(
             self, self.config_provenance, verbose, None, tree,

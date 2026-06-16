@@ -151,6 +151,22 @@ class TestProfileOverlayPerFile:
         assert cfg.active_profile == "dev"
 
 
+class TestDirectoryNamedLikeConfig:
+    """A directory whose name matches the config file must be skipped, not read."""
+
+    def test_directory_match_does_not_crash(self, tmp_path, monkeypatch):
+        # find_in matches on existence, so an ancestor *directory* named like the config
+        # would be returned; reading it must be skipped rather than raising IsADirectoryError.
+        (tmp_path / FILENAME).mkdir()
+        workdir = tmp_path / "proj"
+        _write(workdir / FILENAME, "name: from_child\n")
+        monkeypatch.chdir(workdir)
+
+        cfg = HierConfig()  # must not raise
+
+        assert cfg.name == "from_child"
+
+
 class TestMissingAbsolutePath:
     """A configured-but-missing absolute file path contributes nothing, never crashes."""
 

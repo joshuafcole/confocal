@@ -73,9 +73,10 @@ class AncestorConfigMixin:
             file_path = Path(file).expanduser()
 
             if hierarchical and not file_path.is_absolute():
-                # All ancestor matches, nearest-first. Apply farthest-first so the
-                # nearest file wins on conflict; record the nearest as the resolved path.
-                matches = find_all_upwards(file_path, self._case_sensitive)
+                # All ancestor matches, nearest-first. Keep only files — find_in matches on
+                # existence and could return a directory. Apply farthest-first so the nearest
+                # file wins on conflict; record the nearest as the resolved path.
+                matches = [m for m in find_all_upwards(file_path, self._case_sensitive) if m.is_file()]
                 if matches and self.settings_cls not in _resolved_paths:  # type: ignore[attr-defined]
                     _resolved_paths[self.settings_cls] = matches[0]  # type: ignore[attr-defined]
                 per_file: list[tuple[str, dict[str, Any]]] = []
@@ -116,11 +117,8 @@ class AncestorConfigMixin:
 
         # Stash the raw per-file dicts (nearest-first) so __call__ can apply per-file
         # profile overlay (which needs current_state, only available at call time) before
-        # merging. Also attach provenance here for any path that returns vars directly.
+        # merging the hierarchy. Provenance is built later in _hierarchical_overlay_merge.
         self._hier_per_file = hier_per_file  # type: ignore[attr-defined]
-        if hier_per_file and "config_provenance" in self.settings_cls.model_fields:  # type: ignore[attr-defined]
-            from .config import pivot_config_sources
-            vars["_config_provenance"] = pivot_config_sources(dict(hier_per_file))
 
         return vars
 
