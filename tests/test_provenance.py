@@ -1,7 +1,37 @@
 """Tests for provenance rendering (show_provenance)."""
-from pydantic import BaseModel
+from typing import Dict
+
+from pydantic import BaseModel, Field, SecretStr
 
 from confocal.config import show_provenance, _abbreviate_home
+
+
+class TestDictRecursion:
+    """A dict of models (e.g. connections) is recursed into, per-field, with secrets masked."""
+
+    def test_dict_of_models_attributed_per_field_with_masked_secret(self, capsys):
+        class _Conn(BaseModel):
+            account: str = ""
+            password: SecretStr = SecretStr("")
+
+        class _CfgConns(BaseModel):
+            connections: Dict[str, _Conn] = {}
+
+        cfg = _CfgConns(connections={"sf": _Conn(account="ACC", password=SecretStr("hunter2"))})
+        prov = {
+            "connections.sf.account": [("/home/.snowflake/config.toml", "ACC")],
+            "connections.sf.password": [("/home/.snowflake/config.toml", "hunter2")],
+        }
+
+        show_provenance(cfg, prov, verbose=True)
+        out = capsys.readouterr().out
+
+        # account is attributed to its file (not a single "connections = {...} default" blob)
+        assert "ACC" in out
+        assert "/home/.snowflake/config.toml" in out
+        # password is masked — the plaintext from provenance must not leak
+        assert "hunter2" not in out
+        assert "********" in out
 
 
 class TestAbbreviateHome:
@@ -50,11 +80,30 @@ class TestShowProvenanceNested:
 
         assert "/proj/raiconfig.yaml" in out
 
+    def test_aliased_field_attributed_via_alias_key(self, capsys):
+        """A field with an alias (e.g. `schema` for `schema_`) is keyed in provenance by
+        the alias, so lookup must fall back to the alias when the field name misses."""
 
-class TestOptionARendering:
-    """Default view: annotate only fields whose source differs from the primary file."""
+        class _Deploy(BaseModel):
+            schema_: str = Field(default="", alias="schema")
 
-    def test_primary_source_not_annotated_others_are(self, capsys):
+        class _Cfg2(BaseModel):
+            deployment: _Deploy = _Deploy()
+
+        cfg = _Cfg2(deployment=_Deploy(schema="DB.S"))
+        prov = {"deployment.schema": [("/proj/raiconfig.yaml", "DB.S")]}  # keyed by alias
+
+        show_provenance(cfg, prov, verbose=True)
+        out = capsys.readouterr().out
+
+        assert "/proj/raiconfig.yaml" in out
+        assert "default" not in out
+
+
+class TestSourceAnnotation:
+    """Default view: every field shows its source (primary dimmed, others highlighted)."""
+
+    def test_every_field_shows_its_source(self, capsys):
         cfg = _Cfg(name="proj", conn=_Conn(account="ACC"))
         prov = {
             "name": [("/proj/raiconfig.yaml", "proj")],            # from primary
@@ -64,9 +113,9 @@ class TestOptionARendering:
         show_provenance(cfg, prov, verbose=False, primary_source="/proj/raiconfig.yaml")
         out = capsys.readouterr().out
 
-        # The non-primary source is annotated; the primary path is suppressed.
+        # Both sources are shown — the primary is just de-emphasized, not hidden.
         assert "/home/.snowflake/config.toml" in out
-        assert "/proj/raiconfig.yaml" not in out
+        assert "/proj/raiconfig.yaml" in out
 
     def test_verbose_shows_full_chain_including_primary(self, capsys):
         cfg = _Cfg(name="proj")

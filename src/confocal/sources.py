@@ -88,9 +88,15 @@ class AncestorConfigMixin:
                 hier_per_file.extend(per_file)
                 continue
 
+            # (continues below for the non-hierarchical / single-file case)
+
+            # First source to resolve a file owns the displayed "resolved path" for this
+            # settings class; later sources don't overwrite it.
+            first_resolved = self.settings_cls not in _resolved_paths  # type: ignore[attr-defined]
             file_data = None
             if file_path.is_file():
-                _resolved_paths[self.settings_cls] = file_path  # type: ignore[attr-defined]
+                if first_resolved:
+                    _resolved_paths[self.settings_cls] = file_path  # type: ignore[attr-defined]
                 file_data = self._read_file(file_path)  # type: ignore[attr-defined]
             else:
                 found_path = find_upwards(file_path, self._case_sensitive)
@@ -98,7 +104,8 @@ class AncestorConfigMixin:
                 # so guard with is_file() — a configured-but-missing path contributes
                 # nothing rather than raising FileNotFoundError on read.
                 if found_path and found_path.is_file():
-                    _resolved_paths[self.settings_cls] = found_path  # type: ignore[attr-defined]
+                    if first_resolved:
+                        _resolved_paths[self.settings_cls] = found_path  # type: ignore[attr-defined]
                     file_data = self._read_file(found_path)  # type: ignore[attr-defined]
 
             if file_data:
@@ -107,8 +114,10 @@ class AncestorConfigMixin:
                 else:
                     vars.update(file_data)
 
-        # Attach per-file provenance (nearest-first => winner listed first). pivot keys
-        # each field by its dotted path and tags it with the file it came from.
+        # Stash the raw per-file dicts (nearest-first) so __call__ can apply per-file
+        # profile overlay (which needs current_state, only available at call time) before
+        # merging. Also attach provenance here for any path that returns vars directly.
+        self._hier_per_file = hier_per_file  # type: ignore[attr-defined]
         if hier_per_file and "config_provenance" in self.settings_cls.model_fields:  # type: ignore[attr-defined]
             from .config import pivot_config_sources
             vars["_config_provenance"] = pivot_config_sources(dict(hier_per_file))
@@ -226,5 +235,40 @@ class AncestorYamlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin,
         return yaml.safe_load(content) or {}
 
     @overlay_profile
-    def __call__(self):
+    def _single_file_call(self):
         return super().__call__()
+
+    def __call__(self):
+        if getattr(self, "_hierarchical", False):
+            return self._hierarchical_overlay_merge()
+        return self._single_file_call()
+
+    def _hierarchical_overlay_merge(self) -> dict[str, Any]:
+        """Resolve each file's own active profile, then merge nearest-wins.
+
+        A profile overrides values *within its own file* only; cross-file precedence
+        (nearest directory wins) is applied afterwards. So a profile in a far ancestor
+        cannot override a value set by a nearer file.
+        """
+        from .config import pivot_config_sources
+        from .utils import deep_merge, resolve_active_profile_name, overlay_one
+
+        per_file = getattr(self, "_hier_per_file", [])  # (path, raw_dict), nearest-first
+        if not per_file:
+            return {}
+
+        # Active-profile name: env/init first, else the nearest file that sets it.
+        merged_raw: dict[str, Any] = {}
+        for _path, data in reversed(per_file):  # farthest-first => nearest wins
+            merged_raw = deep_merge(merged_raw, data)
+        name = resolve_active_profile_name(self.settings_cls, self.current_state, merged_raw)
+
+        # Overlay each file's own profile block, then merge nearest-wins.
+        effective = [(path, overlay_one(data, name)) for path, data in per_file]  # nearest-first
+        result: dict[str, Any] = {}
+        for _path, eff in reversed(effective):  # farthest-first
+            result = deep_merge(result, eff)
+
+        if "config_provenance" in self.settings_cls.model_fields:
+            result["_config_provenance"] = pivot_config_sources(dict(effective))
+        return result

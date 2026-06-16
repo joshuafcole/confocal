@@ -131,6 +131,26 @@ class TestSingleFileRegression:
         assert cfg.values == {"b": 2, "c": 3}
 
 
+class TestProfileOverlayPerFile:
+    """A profile overrides only within its own file; nearest file still wins overall."""
+
+    def test_ancestor_profile_does_not_override_nearer_file(self, tmp_path, monkeypatch):
+        # Ancestor file: active profile sets `name`. Nearest file: sets `name` at top level.
+        _write(
+            tmp_path / FILENAME,
+            "active_profile: dev\nprofile:\n  dev:\n    name: from_ancestor_profile\n",
+        )
+        workdir = tmp_path / "proj"
+        _write(workdir / FILENAME, "name: from_child\n")
+        monkeypatch.chdir(workdir)
+
+        cfg = HierConfig()
+
+        # Nearest file wins; the ancestor's profile does not reach across files.
+        assert cfg.name == "from_child"
+        assert cfg.active_profile == "dev"
+
+
 class TestMissingAbsolutePath:
     """A configured-but-missing absolute file path contributes nothing, never crashes."""
 

@@ -6,7 +6,7 @@ import os
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, NamedTuple
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import (
     PydanticBaseSettingsSource,
@@ -167,20 +167,12 @@ def show_provenance_node(
     verbose: bool,
     source_labels: dict[str, str] | None = None,
     primary_source: str | None = None,
+    is_secret: bool = False,
 ) -> None:
     if not sources:
         return
 
     labels = source_labels if source_labels is not None else SOURCE_LABELS
-
-    # When the winning value came from the primary (highest-priority) source, show just
-    # the value — the primary file is already named in the header. Only fields whose
-    # value came from a *different* source get a source annotation. Verbose mode always
-    # shows the full chain.
-    if not verbose and primary_source is not None and sources[0][0] == primary_source:
-        fg_val, bg_val, _, _ = active_style
-        parent.add(f"{name} = [{fg_val} on {bg_val}] {sources[0][1]} [/]")
-        return
 
     parts = [f"{name} ="]
     for ix, (current_source, current_value) in enumerate(sources):
@@ -188,8 +180,16 @@ def show_provenance_node(
             active_style if ix == 0 else inactive_style
         )
         label = _abbreviate_home(labels.get(current_source, current_source))
+        # Every field shows its source. The primary (highest-priority) source is already
+        # named in the header, so dim its tag; tags from other sources keep the brighter
+        # style so the values that came from elsewhere stand out.
+        if ix == 0 and primary_source is not None and current_source == primary_source:
+            fg_source, bg_source = inactive_style.fg_source, inactive_style.bg_source
+        # Provenance stores raw source values, so a secret (e.g. password) would be
+        # plaintext here — mask it.
+        shown_value = "********" if is_secret else current_value
         parts.append(
-            f"[{fg_val} on {bg_val}] {current_value} [/]"
+            f"[{fg_val} on {bg_val}] {shown_value} [/]"
             + f"[{fg_source} on {bg_source}] {label} [/]"
         )
         if not verbose:
@@ -225,20 +225,60 @@ def show_provenance(
         full_path = f"{path}.{field_name}" if path else field_name
         if full_path in skip_fields:
             continue
-
-        value = getattr(config, field_name)
-        if hasattr(value, "model_fields"):
-            # Nested config
-            subtree = tree.add(field_name)
-            show_provenance(value, provenance, verbose, skip_fields, subtree, full_path, source_labels, primary_source)
-        else:
-            # leaf property — provenance is keyed by the dotted full path (e.g.
-            # "connections.sf.account"), so look it up by full_path, not the leaf name.
-            sources = provenance.get(full_path) or [("DefaultSettingsSource", value)]
-            show_provenance_node(tree, field_name, sources, verbose, source_labels, primary_source)
+        alias = config.model_fields[field_name].alias
+        alias_path = (f"{path}.{alias}" if path else alias) if alias else None
+        _show_value(
+            tree, field_name, getattr(config, field_name), provenance, verbose,
+            skip_fields, full_path, source_labels, primary_source, alias_path,
+        )
 
     if is_root:
         rich.print(tree)
+
+
+def _show_value(
+    tree, label, value, provenance, verbose, skip_fields, full_path,
+    source_labels, primary_source, alias_path=None,
+):
+    """Render one value: recurse into nested models and dicts (e.g. ``connections``),
+    or render a leaf with its provenance."""
+    # Nested model → recurse into its fields.
+    if hasattr(value, "model_fields"):
+        subtree = tree.add(label)
+        for field_name in value.model_fields:
+            child_path = f"{full_path}.{field_name}" if full_path else field_name
+            if child_path in skip_fields:
+                continue
+            child_alias = value.model_fields[field_name].alias
+            child_alias_path = (f"{full_path}.{child_alias}" if full_path else child_alias) if child_alias else None
+            _show_value(
+                subtree, field_name, getattr(value, field_name), provenance, verbose,
+                skip_fields, child_path, source_labels, primary_source, child_alias_path,
+            )
+        return
+
+    # Dict (e.g. connections: {name -> ConnectionConfig}) → recurse into each entry so
+    # individual fields get attributed, instead of showing the whole dict as one leaf.
+    if isinstance(value, dict) and value:
+        subtree = tree.add(label)
+        for key, item in value.items():
+            child_path = f"{full_path}.{key}" if full_path else str(key)
+            _show_value(
+                subtree, str(key), item, provenance, verbose, skip_fields,
+                child_path, source_labels, primary_source,
+            )
+        return
+
+    # Leaf — provenance is keyed by the dotted full path; fall back to the field's alias
+    # (e.g. raw `schema` for field `schema_`) when the field-name key is absent.
+    sources = provenance.get(full_path)
+    if sources is None and alias_path:
+        sources = provenance.get(alias_path)
+    sources = sources or [("DefaultSettingsSource", value)]
+    show_provenance_node(
+        tree, label, sources, verbose, source_labels, primary_source,
+        is_secret=isinstance(value, SecretStr),
+    )
 
 
 # ------------------------------------------------------------------------------
