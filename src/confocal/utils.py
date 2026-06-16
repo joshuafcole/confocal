@@ -18,6 +18,44 @@ def deep_merge(dict1: dict, dict2: dict) -> dict:
     return result
 
 
+def profile_candidate_keys(settings_cls) -> list[str]:
+    """Keys that may carry the active-profile selector: the field name plus any
+    validation aliases (pydantic-settings keys alias-matched env vars by the alias)."""
+    keys = ["active_profile"]
+    field_info = settings_cls.model_fields.get("active_profile")
+    if field_info is not None and field_info.validation_alias is not None:
+        from pydantic import AliasChoices
+        va = field_info.validation_alias
+        if isinstance(va, AliasChoices):
+            keys += [c for c in va.choices if isinstance(c, str)]
+        elif isinstance(va, str):
+            keys.append(va)
+    return keys
+
+
+def resolve_active_profile_name(settings_cls, current_state: dict, fallback_state: dict):
+    """Resolve the active-profile name: prefer higher-priority sources (env vars, init)
+    in ``current_state``, then fall back to the merged config ``fallback_state``."""
+    keys = profile_candidate_keys(settings_cls)
+    return (
+        next((current_state[k] for k in keys if k in current_state), None)
+        or next((fallback_state[k] for k in keys if k in fallback_state), None)
+    )
+
+
+def overlay_one(data: dict, profile_name: str | None) -> dict:
+    """Overlay ``data``'s own ``profile[profile_name]`` block onto ``data`` — the profile
+    overrides values *within this same dict*. Returns ``data`` unchanged when the profile
+    is absent. Used for per-file profile resolution before cross-file merging."""
+    if not profile_name:
+        return data
+    profiles = data.get("profiles") or data.get("profile") or {}
+    block = profiles.get(profile_name)
+    if isinstance(block, dict):
+        return deep_merge(data, block)
+    return data
+
+
 def overlay_profile(fn):
     """
     Decorator for `PydanticBaseSettingsSource` descendant's `__call__` method
@@ -33,29 +71,8 @@ def overlay_profile(fn):
         source_state = fn(self)
         cur_state = deep_merge(source_state, self.current_state)
 
-        # Find the profile selector field.
-        # Check the field name and all its validation aliases — pydantic-settings
-        # keys alias-matched env vars by the alias name, not the field name.
-        profile_field = "active_profile"
-        field_info = self.settings_cls.model_fields.get(profile_field)
-        candidate_keys = [profile_field]
-        if field_info is not None:
-            va = field_info.validation_alias
-            if va is not None:
-                from pydantic import AliasChoices
-                if isinstance(va, AliasChoices):
-                    candidate_keys += [c for c in va.choices if isinstance(c, str)]
-                elif isinstance(va, str):
-                    candidate_keys.append(va)
-
-        # Check higher-priority sources (env vars, init) first, then fall back to any
-        # candidate key in the merged state. cur_state may store the value under an
-        # alias key — pydantic-settings' YamlConfigSettingsSource rewrites matched keys
-        # to the first AliasChoices entry — so we must scan every candidate, not just
-        # the field name.
-        active_profile_name = (
-            next((self.current_state[k] for k in candidate_keys if k in self.current_state), None)
-            or next((cur_state[k] for k in candidate_keys if k in cur_state), None)
+        active_profile_name = resolve_active_profile_name(
+            self.settings_cls, self.current_state, cur_state
         )
 
         # Check both singular and plural forms for profiles
@@ -120,3 +137,36 @@ def find_upwards(needle: Path, case_sensitive=False) -> Path | None:
             return None  # Stop if we're at root directory
         else:
             cur = cur.parent
+
+
+def find_all_upwards(needle: Path, case_sensitive=False) -> list[Path]:
+    """
+    Find every ancestor (including the current directory) that contains the given
+    path, walking from the current working directory up to the filesystem root.
+
+    Returns the qualified matches ordered nearest-first: index 0 is the match closest
+    to the current directory, and the last element is the one closest to the filesystem
+    root. Returns an empty list if no ancestor contains the path.
+
+    This is the multi-match counterpart of :func:`find_upwards`, which returns only the
+    nearest match. The walk stops at the filesystem root, matching ``find_upwards``.
+
+    For an absolute ``needle`` the path is returned as-is in a single-element list,
+    mirroring :func:`find_upwards`.
+    """
+    if needle.is_absolute():
+        return [needle]
+
+    matches: list[Path] = []
+    cur = Path.cwd()
+
+    while True:
+        found = find_in(cur, needle, case_sensitive)
+        if found:
+            matches.append(found)
+
+        if cur == cur.parent:
+            break  # Reached the filesystem root
+        cur = cur.parent
+
+    return matches
