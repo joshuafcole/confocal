@@ -229,7 +229,7 @@ def show_provenance(
     if tree is None:
         tree = Tree("Configuration")
 
-    for field_name in config.model_fields:
+    for field_name in sorted(config.model_fields):
         full_path = f"{path}.{field_name}" if path else field_name
         if full_path in skip_fields:
             continue
@@ -253,7 +253,7 @@ def _show_value(
     # Nested model → recurse into its fields.
     if hasattr(value, "model_fields"):
         subtree = tree.add(label)
-        for field_name in value.model_fields:
+        for field_name in sorted(value.model_fields):
             child_path = f"{full_path}.{field_name}" if full_path else field_name
             if child_path in skip_fields:
                 continue
@@ -269,7 +269,7 @@ def _show_value(
     # individual fields get attributed, instead of showing the whole dict as one leaf.
     if isinstance(value, dict) and value:
         subtree = tree.add(label)
-        for key, item in value.items():
+        for key, item in sorted(value.items()):
             child_path = f"{full_path}.{key}" if full_path else str(key)
             _show_value(
                 subtree, str(key), item, provenance, verbose, skip_fields,
@@ -343,7 +343,7 @@ class BaseConfig(BaseSettings):
         active = getattr(self, "active_profile", None)
         if profiles:
             profiles_node = tree.add("Available Profiles")
-            for profile in profiles.keys():
+            for profile in sorted(profiles.keys()):
                 profiles_node.add(
                     f"{profile} (active)"
                     if active == profile

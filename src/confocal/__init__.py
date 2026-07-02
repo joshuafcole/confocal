@@ -7,7 +7,7 @@ from .config import (
 )
 from .utils import find_upwards, find_all_upwards, deep_merge
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __all__ = [
     "BaseConfig",
     "ConfocalSettingsConfigDict",
