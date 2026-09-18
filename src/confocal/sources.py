@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
-
 from __future__ import annotations
+
 import os
 import re
 import sys
@@ -19,16 +18,16 @@ else:
             "Install it with: pip install tomli"
         )
 
-from pydantic_settings.sources import DEFAULT_PATH, PathType
+import yaml
 from pydantic_settings import BaseSettings
 from pydantic_settings.sources import (
+    DEFAULT_PATH,
+    PathType,
     TomlConfigSettingsSource,
     YamlConfigSettingsSource,
 )
-import yaml
 
 from .utils import find_upwards, overlay_profile
-
 
 # Maps settings class → the resolved config file path found during source evaluation.
 # Consumed by BaseConfig.model_post_init to populate _resolved_config_file.
@@ -60,7 +59,8 @@ class AncestorConfigMixin:
         if isinstance(files, (str, os.PathLike)):
             files = [files]
 
-        from .utils import deep_merge as merge_dicts, find_all_upwards
+        from .utils import deep_merge as merge_dicts
+        from .utils import find_all_upwards
 
         hierarchical = getattr(self, "_hierarchical", False)
 
@@ -166,7 +166,17 @@ class EnvVarTemplateMixin:
 
         # Match {{ env_var('VAR') }} or {{ env_var('VAR', 'default') }}
         pattern = r"\{\{\s*env_var\(\s*['\"]([^'\"]+)['\"]\s*(?:,\s*['\"]([^'\"]+)['\"])?\s*\)\s*\}\}"
-        return re.sub(pattern, replace_env_var, content)
+
+        # This substitution runs on the raw file text, ahead of YAML/TOML parsing, so it
+        # has no notion of comments. Without this guard, a line commented out with '#'
+        # (valid in both formats) still gets its env_var() calls evaluated, raising on a
+        # missing variable that the user never intended to be active.
+        def render_line(line: str) -> str:
+            if line.lstrip().startswith("#"):
+                return line
+            return re.sub(pattern, replace_env_var, line)
+
+        return "\n".join(render_line(line) for line in content.split("\n"))
 
 
 # ------------------------------------------------------------------------------
@@ -249,7 +259,7 @@ class AncestorYamlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin,
         cannot override a value set by a nearer file.
         """
         from .config import pivot_config_sources
-        from .utils import deep_merge, resolve_active_profile_name, overlay_one
+        from .utils import deep_merge, overlay_one, resolve_active_profile_name
 
         per_file = getattr(self, "_hier_per_file", [])  # (path, raw_dict), nearest-first
         if not per_file:

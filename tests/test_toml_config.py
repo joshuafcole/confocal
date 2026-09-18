@@ -1,6 +1,8 @@
 """Tests for TOML configuration loading with env var templating."""
 import os
+
 import pytest
+
 from tests import TomlTestConfig, YamlTestConfig
 
 
@@ -52,6 +54,13 @@ class TestTomlConfigLoading:
         assert config.debug is False
         assert config.max_connections == 100
     
+    def test_toml_commented_out_env_var_is_ignored(self, clean_env):
+        # The fixture has a commented-out `env_var('UNDEFINED_COMMENTED_OUT_VAR')` line
+        # with no matching env var and no default. It must not be evaluated.
+        config = TomlTestConfig(active_profile='dev')
+
+        assert config.database_url == "postgresql://localhost:5432/dev"
+
     def test_toml_yaml_consistency(self, clean_env):
         os.environ['TEST_DB_URL'] = 'postgresql://consistency:5432/test'
         os.environ['TEST_API_KEY'] = 'consistency_key'

@@ -1,10 +1,12 @@
 """Tests for env_file_override — loading config from a path set by an environment variable."""
-import os
-import pytest
-from typing import Optional
-from pydantic_settings import SettingsConfigDict
-from confocal import BaseConfig, ConfocalSettingsConfigDict
+from __future__ import annotations
 
+import os
+
+import pytest
+from pydantic_settings import SettingsConfigDict
+
+from confocal import BaseConfig, ConfocalSettingsConfigDict
 
 # ---------------------------------------------------------------------------
 # Test config classes
@@ -19,10 +21,10 @@ class YamlConfigWithOverride(BaseConfig):
         nested_model_default_partial_update=True,
     )
     database_url: str
-    api_key: Optional[str] = None
+    api_key: str | None = None
     debug: bool = False
     timeout: int = 30
-    max_connections: Optional[int] = None
+    max_connections: int | None = None
 
 
 class TomlConfigWithOverride(BaseConfig):
@@ -34,10 +36,10 @@ class TomlConfigWithOverride(BaseConfig):
         nested_model_default_partial_update=True,
     )
     database_url: str
-    api_key: Optional[str] = None
+    api_key: str | None = None
     debug: bool = False
     timeout: int = 30
-    max_connections: Optional[int] = None
+    max_connections: int | None = None
 
 
 class YamlConfigWithoutOverride(BaseConfig):
@@ -48,10 +50,10 @@ class YamlConfigWithoutOverride(BaseConfig):
         nested_model_default_partial_update=True,
     )
     database_url: str
-    api_key: Optional[str] = None
+    api_key: str | None = None
     debug: bool = False
     timeout: int = 30
-    max_connections: Optional[int] = None
+    max_connections: int | None = None
 
 
 # ---------------------------------------------------------------------------

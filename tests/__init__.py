@@ -1,5 +1,7 @@
-from typing import Optional
+from __future__ import annotations
+
 from pydantic_settings import SettingsConfigDict
+
 from confocal import BaseConfig
 
 
@@ -11,10 +13,10 @@ class YamlTestConfig(BaseConfig):
     )
     
     database_url: str
-    api_key: Optional[str] = None
+    api_key: str | None = None
     debug: bool = False
     timeout: int = 30
-    max_connections: Optional[int] = None
+    max_connections: int | None = None
 
 
 class TomlTestConfig(BaseConfig):
@@ -25,7 +27,7 @@ class TomlTestConfig(BaseConfig):
     )
     
     database_url: str
-    api_key: Optional[str] = None
+    api_key: str | None = None
     debug: bool = False
     timeout: int = 30
-    max_connections: Optional[int] = None
+    max_connections: int | None = None

@@ -1,6 +1,8 @@
 import os
+
 import pytest
-from tests import YamlTestConfig, TomlTestConfig
+
+from tests import TomlTestConfig, YamlTestConfig
 
 
 class TestConfigIntegration:

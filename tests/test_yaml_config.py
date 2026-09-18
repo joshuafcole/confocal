@@ -1,9 +1,12 @@
 """Tests for YAML configuration loading with env var templating."""
+from __future__ import annotations
+
 import os
-from typing import Optional
+
 import pytest
 from pydantic import AliasChoices, Field
 from pydantic_settings import SettingsConfigDict
+
 from confocal import BaseConfig
 from tests import YamlTestConfig
 
@@ -18,10 +21,10 @@ class ProfileSingularYamlConfig(BaseConfig):
     )
 
     database_url: str
-    api_key: Optional[str] = None
+    api_key: str | None = None
     debug: bool = False
     timeout: int = 30
-    max_connections: Optional[int] = None
+    max_connections: int | None = None
 
 
 class AliasedProfileYamlConfig(BaseConfig):
@@ -38,10 +41,10 @@ class AliasedProfileYamlConfig(BaseConfig):
         validation_alias=AliasChoices("CUSTOM_ACTIVE_PROFILE", "ACTIVE_PROFILE", "active_profile"),
     )
     database_url: str
-    api_key: Optional[str] = None
+    api_key: str | None = None
     debug: bool = False
     timeout: int = 30
-    max_connections: Optional[int] = None
+    max_connections: int | None = None
 
 
 class TestYamlConfigLoading:
@@ -110,11 +113,18 @@ class TestYamlConfigLoading:
     def test_yaml_missing_env_var_uses_default(self, clean_env):
         # Only set one env var
         os.environ['TEST_DB_URL'] = 'postgresql://partial:5432/test'
-        
+
         config = YamlTestConfig(active_profile='dev')
-        
+
         assert config.database_url == "postgresql://partial:5432/test"
         assert config.api_key == "dev_key_123"  # Uses default
+
+    def test_yaml_commented_out_env_var_is_ignored(self, clean_env):
+        # The fixture has a commented-out `env_var('UNDEFINED_COMMENTED_OUT_VAR')` line
+        # with no matching env var and no default. It must not be evaluated.
+        config = YamlTestConfig(active_profile='dev')
+
+        assert config.database_url == "postgresql://localhost:5432/dev"
 
 
 class TestActiveProfileAliasResolution:
