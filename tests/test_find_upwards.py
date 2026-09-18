@@ -1,8 +1,7 @@
 """Tests for find_upwards / find_all_upwards directory walking."""
 from pathlib import Path
 
-from confocal import find_upwards, find_all_upwards
-
+from confocal import find_all_upwards, find_upwards
 
 NEEDLE = Path("raiconfig.yaml")
 

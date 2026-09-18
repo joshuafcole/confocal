@@ -1,10 +1,12 @@
 """Tests for the hierarchical_merge model_config option on the YAML source."""
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import Field
-from confocal import BaseConfig, ConfocalSettingsConfigDict
 
+from confocal import BaseConfig, ConfocalSettingsConfigDict
 
 FILENAME = "hier_config.yaml"
 
@@ -19,7 +21,7 @@ class HierConfig(BaseConfig):
         nested_model_default_partial_update=True,
     )
 
-    name: Optional[str] = None
+    name: str | None = None
     values: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -32,7 +34,7 @@ class SingleFileConfig(BaseConfig):
         nested_model_default_partial_update=True,
     )
 
-    name: Optional[str] = None
+    name: str | None = None
     values: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -47,7 +49,7 @@ class EnvOverrideConfig(BaseConfig):
         nested_model_default_partial_update=True,
     )
 
-    name: Optional[str] = None
+    name: str | None = None
     values: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -73,7 +75,7 @@ def _two_level_tree(tmp_path):
 
 class TestHierarchicalMerge:
     def test_nearest_wins_field_level_merge(self, tmp_path, monkeypatch):
-        workdir, _root, child = _two_level_tree(tmp_path)
+        workdir, _root, _child = _two_level_tree(tmp_path)
         monkeypatch.chdir(workdir)
 
         cfg = HierConfig()
@@ -179,7 +181,7 @@ class TestMissingAbsolutePath:
                 extra="ignore",
                 nested_model_default_partial_update=True,
             )
-            name: Optional[str] = None
+            name: str | None = None
 
         cfg = MissingFileConfig()  # must not raise FileNotFoundError
         assert cfg.name is None

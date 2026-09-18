@@ -1,9 +1,12 @@
 """Tests for YAML configuration loading with env var templating."""
+from __future__ import annotations
+
 import os
-from typing import Optional
+
 import pytest
 from pydantic import AliasChoices, Field
 from pydantic_settings import SettingsConfigDict
+
 from confocal import BaseConfig
 from tests import YamlTestConfig
 
@@ -18,10 +21,10 @@ class ProfileSingularYamlConfig(BaseConfig):
     )
 
     database_url: str
-    api_key: Optional[str] = None
+    api_key: str | None = None
     debug: bool = False
     timeout: int = 30
-    max_connections: Optional[int] = None
+    max_connections: int | None = None
 
 
 class AliasedProfileYamlConfig(BaseConfig):
@@ -38,10 +41,10 @@ class AliasedProfileYamlConfig(BaseConfig):
         validation_alias=AliasChoices("CUSTOM_ACTIVE_PROFILE", "ACTIVE_PROFILE", "active_profile"),
     )
     database_url: str
-    api_key: Optional[str] = None
+    api_key: str | None = None
     debug: bool = False
     timeout: int = 30
-    max_connections: Optional[int] = None
+    max_connections: int | None = None
 
 
 class TestYamlConfigLoading:

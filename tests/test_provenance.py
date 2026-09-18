@@ -1,9 +1,9 @@
 """Tests for provenance rendering (show_provenance)."""
-from typing import Dict
+from __future__ import annotations
 
 from pydantic import BaseModel, Field, SecretStr
 
-from confocal.config import show_provenance, _abbreviate_home
+from confocal.config import _abbreviate_home, show_provenance
 
 
 class TestDictRecursion:
@@ -15,7 +15,7 @@ class TestDictRecursion:
             password: SecretStr = SecretStr("")
 
         class _CfgConns(BaseModel):
-            connections: Dict[str, _Conn] = {}
+            connections: dict[str, _Conn] = {}
 
         cfg = _CfgConns(connections={"sf": _Conn(account="ACC", password=SecretStr("hunter2"))})
         prov = {

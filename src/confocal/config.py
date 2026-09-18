@@ -1,22 +1,24 @@
-#!/usr/bin/env python3
-
-#!/usr/bin/env python3
 from __future__ import annotations
+
 import os
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, NamedTuple
+
+import rich
 from pydantic import AliasChoices, BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import (
-    PydanticBaseSettingsSource,
     DefaultSettingsSource,
+    PydanticBaseSettingsSource,
 )
 from rich.tree import Tree
-import rich
 
-from .sources import AncestorTomlConfigSettingsSource, AncestorYamlConfigSettingsSource, _resolved_paths
-
+from .sources import (
+    AncestorTomlConfigSettingsSource,
+    AncestorYamlConfigSettingsSource,
+    _resolved_paths,
+)
 
 # ------------------------------------------------------------------------------
 # Extended SettingsConfigDict
@@ -317,7 +319,7 @@ class BaseConfig(BaseSettings):
     )
     active_profile: str | None = Field(default=None)
 
-    def model_post_init(self, __context: Any) -> None:
+    def model_post_init(self, __context: Any, /) -> None:
         """Attach provenance data and resolved config file path computed during settings-source evaluation."""
         prov = _pending_provenance.pop(type(self), None)
         if prov is not None:
