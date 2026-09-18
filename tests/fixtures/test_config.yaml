@@ -1,4 +1,5 @@
 # Test YAML config with profiles and env var templating
+# user: "{{ env_var('UNDEFINED_COMMENTED_OUT_VAR') }}"
 active_profile: dev
 
 profiles:

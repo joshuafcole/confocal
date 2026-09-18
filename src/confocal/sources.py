@@ -166,7 +166,17 @@ class EnvVarTemplateMixin:
 
         # Match {{ env_var('VAR') }} or {{ env_var('VAR', 'default') }}
         pattern = r"\{\{\s*env_var\(\s*['\"]([^'\"]+)['\"]\s*(?:,\s*['\"]([^'\"]+)['\"])?\s*\)\s*\}\}"
-        return re.sub(pattern, replace_env_var, content)
+
+        # This substitution runs on the raw file text, ahead of YAML/TOML parsing, so it
+        # has no notion of comments. Without this guard, a line commented out with '#'
+        # (valid in both formats) still gets its env_var() calls evaluated, raising on a
+        # missing variable that the user never intended to be active.
+        def render_line(line: str) -> str:
+            if line.lstrip().startswith("#"):
+                return line
+            return re.sub(pattern, replace_env_var, line)
+
+        return "\n".join(render_line(line) for line in content.split("\n"))
 
 
 # ------------------------------------------------------------------------------
