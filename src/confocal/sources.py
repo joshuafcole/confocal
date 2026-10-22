@@ -147,34 +147,45 @@ class EnvVarTemplateMixin:
 
     def _render_env_vars(self, content: str) -> str:
         """
-        Process {{ env_var('VAR') }} and {{ env_var('VAR', 'default') }} patterns.
-        Supports both single and double quotes.
+        Process environment variable references:
+          - {{ env_var('VAR') }} and {{ env_var('VAR', 'default') }} (single or double quotes)
+          - ${VAR} and ${VAR:-default}
+          - $${VAR} escapes to a literal ${VAR}
         """
-        def replace_env_var(match: re.Match) -> str:
-            var_name = match.group(1)
-            default = match.group(2) if match.lastindex and match.lastindex > 1 else None
-
+        def lookup(var_name: str, default: str | None, hint: str) -> str:
             value = os.environ.get(var_name)
             if value is None:
                 if default is not None:
                     return default
                 raise ValueError(
                     f"Environment variable '{var_name}' not found and no default provided. "
-                    f"Use: {{{{ env_var('{var_name}', 'default_value') }}}}"
+                    f"Use: {hint}"
                 )
             return value
 
-        # Match {{ env_var('VAR') }} or {{ env_var('VAR', 'default') }}
-        pattern = r"\{\{\s*env_var\(\s*['\"]([^'\"]+)['\"]\s*(?:,\s*['\"]([^'\"]+)['\"])?\s*\)\s*\}\}"
+        def replace(match: re.Match) -> str:
+            if match.group(0) == "$${":
+                return "${"
+            if match.group("jname") is not None:
+                name, default = match.group("jname"), match.group("jdefault")
+                return lookup(name, default, f"{{{{ env_var('{name}', 'default_value') }}}}")
+            name, default = match.group("sname"), match.group("sdefault")
+            return lookup(name, default, f"${{{name}:-default_value}}")
+
+        pattern = re.compile(
+            r"\$\$\{"
+            r"|\{\{\s*env_var\(\s*['\"](?P<jname>[^'\"]+)['\"]\s*(?:,\s*['\"](?P<jdefault>[^'\"]+)['\"])?\s*\)\s*\}\}"
+            r"|\$\{(?P<sname>[A-Za-z_][A-Za-z0-9_]*)(?::-(?P<sdefault>[^}]*))?\}"
+        )
 
         # This substitution runs on the raw file text, ahead of YAML/TOML parsing, so it
         # has no notion of comments. Without this guard, a line commented out with '#'
-        # (valid in both formats) still gets its env_var() calls evaluated, raising on a
+        # (valid in both formats) still gets its env var references evaluated, raising on a
         # missing variable that the user never intended to be active.
         def render_line(line: str) -> str:
             if line.lstrip().startswith("#"):
                 return line
-            return re.sub(pattern, replace_env_var, line)
+            return pattern.sub(replace, line)
 
         return "\n".join(render_line(line) for line in content.split("\n"))
 
@@ -187,7 +198,7 @@ class EnvVarTemplateMixin:
 class AncestorTomlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin, TomlConfigSettingsSource):
     """
     Read config from the nearest matching toml file in this or a containing folder.
-    Supports environment variable templating with {{ env_var('VAR') }} syntax (via EnvVarTemplateMixin).
+    Supports environment variable templating with {{ env_var('VAR') }} and ${VAR} syntax (via EnvVarTemplateMixin).
     """
 
     def __init__(
@@ -220,7 +231,7 @@ class AncestorTomlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin,
 class AncestorYamlConfigSettingsSource(AncestorConfigMixin, EnvVarTemplateMixin, YamlConfigSettingsSource):
     """
     Read config from the nearest matching YAML file in this or a containing folder.
-    Supports environment variable templating with {{ env_var('VAR') }} syntax (via EnvVarTemplateMixin).
+    Supports environment variable templating with {{ env_var('VAR') }} and ${VAR} syntax (via EnvVarTemplateMixin).
     """
 
     def __init__(

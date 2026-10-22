@@ -104,6 +104,16 @@ database_url: "{{ env_var('DB_URL', 'postgresql://localhost:5432') }}"
 api_key: "{{ env_var('API_KEY') }}"  # Required, will error if not set
 ```
 
+The shell-style `${VAR}` syntax is also supported (in YAML and TOML):
+
+```yaml
+database_url: "${DB_URL:-postgresql://localhost:5432}"  # With default
+api_key: "${API_KEY}"  # Required, will error if not set
+literal: "$${NOT_SUBSTITUTED}"  # Escape: becomes the literal text ${NOT_SUBSTITUTED}
+```
+
+Lines starting with `#` are not substituted.
+
 ## Advanced Usage
 
 Show full config inheritance chain:
