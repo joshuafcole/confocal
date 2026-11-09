@@ -316,6 +316,8 @@ class BaseConfig(BaseSettings):
     profiles: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("profile", "profiles"),
+        exclude=True,
+        repr=False,
     )
     active_profile: str | None = Field(default=None)
 
