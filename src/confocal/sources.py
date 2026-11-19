@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -69,24 +70,17 @@ class AncestorConfigMixin:
         # Used to attach per-file provenance so config:explain can show which file set
         # each field.
         hier_per_file: list[tuple[str, dict[str, Any]]] = []
-        for file in files:
+        # (pattern index, path) for every ancestor match across ALL patterns. Ordered after the
+        # loop so precedence is decided by directory depth first, pattern order second.
+        hier_matches: list[tuple[int, Path]] = []
+        for pattern_idx, file in enumerate(files):
             file_path = Path(file).expanduser()
 
             if hierarchical and not file_path.is_absolute():
-                # All ancestor matches, nearest-first. Keep only files — find_in matches on
-                # existence and could return a directory. Apply farthest-first so the nearest
-                # file wins on conflict; record the nearest as the resolved path.
-                matches = [m for m in find_all_upwards(file_path, self._case_sensitive) if m.is_file()]
-                if matches and self.settings_cls not in _resolved_paths:  # type: ignore[attr-defined]
-                    _resolved_paths[self.settings_cls] = matches[0]  # type: ignore[attr-defined]
-                per_file: list[tuple[str, dict[str, Any]]] = []
-                for match in matches:
-                    data = self._read_file(match)  # type: ignore[attr-defined]
-                    if data:
-                        per_file.append((str(match), data))
-                for _path, data in reversed(per_file):
-                    vars = merge_dicts(vars, data)
-                hier_per_file.extend(per_file)
+                # Keep only files — find_in matches on existence and could return a directory.
+                for m in find_all_upwards(file_path, self._case_sensitive):
+                    if m.is_file():
+                        hier_matches.append((pattern_idx, m))
                 continue
 
             # (continues below for the non-hierarchical / single-file case)
@@ -114,6 +108,38 @@ class AncestorConfigMixin:
                     vars = merge_dicts(vars, file_data)
                 else:
                     vars.update(file_data)
+
+        if hier_matches:
+            # Nearest directory first; within one directory the earlier pattern comes first
+            # (and therefore wins).
+            hier_matches.sort(key=lambda im: (-len(im[1].parent.parts), im[0]))
+
+            # Several patterns matching in one directory (e.g. raiconfig.yaml + raiconfig.yml)
+            # are all merged, but that is almost always a mistake, so say so.
+            by_dir: dict[Path, list[Path]] = {}
+            for _idx, m in hier_matches:
+                by_dir.setdefault(m.parent, []).append(m)
+            for directory, found in by_dir.items():
+                if len(found) > 1:
+                    warnings.warn(
+                        f"Multiple config files found in {directory}: "
+                        f"{', '.join(p.name for p in found)}. All are merged, with "
+                        f"{found[0].name} taking precedence. Keep only one to avoid ambiguity.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+
+            if self.settings_cls not in _resolved_paths:  # type: ignore[attr-defined]
+                _resolved_paths[self.settings_cls] = hier_matches[0][1]  # type: ignore[attr-defined]
+            per_file: list[tuple[str, dict[str, Any]]] = []
+            for _idx, match in hier_matches:
+                data = self._read_file(match)  # type: ignore[attr-defined]
+                if data:
+                    per_file.append((str(match), data))
+            # Apply farthest-first so the nearest file wins on conflict.
+            for _path, data in reversed(per_file):
+                vars = merge_dicts(vars, data)
+            hier_per_file.extend(per_file)
 
         # Stash the raw per-file dicts (nearest-first) so __call__ can apply per-file
         # profile overlay (which needs current_state, only available at call time) before

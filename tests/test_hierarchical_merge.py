@@ -198,3 +198,72 @@ class TestEnvOverrideDisablesMerge:
         # Only the override file is loaded; the root file is not merged in.
         assert cfg.name == "child"
         assert cfg.values == {"b": 2, "c": 3}
+
+
+class MultiExtConfig(BaseConfig):
+    """Two filename patterns (.yaml/.yml) in one hierarchical walk."""
+
+    model_config = ConfocalSettingsConfigDict(
+        yaml_file=["multi.yaml", "multi.yml"],
+        hierarchical_merge=True,
+        extra="ignore",
+        nested_model_default_partial_update=True,
+    )
+
+    name: str | None = None
+    values: dict[str, Any] = Field(default_factory=dict)
+
+
+class TestMultipleFilenamePatterns:
+    def test_nearer_yml_beats_farther_yaml(self, tmp_path, monkeypatch):
+        _write(tmp_path / "multi.yaml", "name: far\nvalues:\n  a: 1\n  b: 1\n")
+        workdir = tmp_path / "sub"
+        near = _write(workdir / "multi.yml", "name: near\nvalues:\n  b: 2\n")
+        monkeypatch.chdir(workdir)
+
+        cfg = MultiExtConfig()
+
+        assert cfg.name == "near"
+        assert cfg.values == {"a": 1, "b": 2}
+        assert getattr(cfg, "_resolved_config_file", None) == str(near)
+
+    def test_nearer_yaml_beats_farther_yml(self, tmp_path, monkeypatch):
+        _write(tmp_path / "multi.yml", "name: far\n")
+        workdir = tmp_path / "sub"
+        _write(workdir / "multi.yaml", "name: near\n")
+        monkeypatch.chdir(workdir)
+
+        assert MultiExtConfig().name == "near"
+
+    def test_same_dir_warns_and_yaml_wins(self, tmp_path, monkeypatch):
+        import pytest
+
+        _write(tmp_path / "multi.yaml", "name: from-yaml\nvalues:\n  a: 1\n")
+        _write(tmp_path / "multi.yml", "name: from-yml\nvalues:\n  a: 2\n  b: 3\n")
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.warns(UserWarning, match=r"multi\.yaml, multi\.yml"):
+            cfg = MultiExtConfig()
+
+        assert cfg.name == "from-yaml"
+        assert cfg.values == {"a": 1, "b": 3}
+
+    def test_no_warning_for_single_file_per_dir(self, tmp_path, monkeypatch, recwarn):
+        _write(tmp_path / "multi.yaml", "name: far\n")
+        workdir = tmp_path / "sub"
+        _write(workdir / "multi.yml", "name: near\n")
+        monkeypatch.chdir(workdir)
+
+        MultiExtConfig()
+
+        assert not [w for w in recwarn if "Multiple config files" in str(w.message)]
+
+    def test_provenance_ordered_by_depth(self, tmp_path, monkeypatch):
+        _write(tmp_path / "multi.yaml", "name: far\n")
+        workdir = tmp_path / "sub"
+        near = _write(workdir / "multi.yml", "name: near\n")
+        monkeypatch.chdir(workdir)
+
+        cfg = MultiExtConfig()
+
+        assert cfg.config_provenance["name"][0] == (str(near), "near")
